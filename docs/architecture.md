@@ -33,11 +33,14 @@ A replacement backend implements `ICrowCastBackend`, receives an immutable `Crow
 ## Membership flow
 
 1. The core creates a random identity and starts the selected backend.
-2. Discovery returns contact endpoints. With no contacts, the Akka backend bootstraps itself; otherwise it joins the configured seeds.
+2. Discovery returns contact endpoints. Static discovery is useful locally; DNS discovery resolves a stable service name into the current ephemeral replica addresses. With no contacts, the Akka backend bootstraps itself; otherwise it joins the discovered seeds.
 3. Every replica periodically publishes an announcement containing its identity, generation, endpoint, start time, and metadata.
 4. Akka reachability events map to `Alive` or `Suspect`; downing/removal maps to `Dead`.
 5. A CrowCast departure announcement maps to terminal `Left` before transport shutdown.
 6. An announcement from the same generation can refute `Suspect`. Terminal states are not resurrected; a restarted replica has a new identity and generation.
+7. Backend startup completes when Akka reports the local member as `Up`. `MemberRemoved` compacts the actor's endpoint and announcement state while a bounded terminal tombstone prevents delayed announcements from resurrecting that generation.
+
+The core keeps at most `MaximumRetainedTerminalMembers` terminal records, ordered by their last change. This bounds memory during long-running Kubernetes scale and replacement cycles while preserving recent `Dead` and `Left` diagnostics.
 
 Akka's phi-accrual failure detector tolerates variable network latency. The split-brain resolver uses `keep-majority`, waits for the configured stable period, and does not use an external lease. This is suitable for advisory CrowCast coordination but is not a source of strong consistency.
 

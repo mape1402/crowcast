@@ -23,6 +23,8 @@ public sealed class CrowCastOptionsValidatorTests
                 options.MessageTimeToLive = TimeSpan.FromSeconds(2);
             }, "DeduplicationWindow must be greater"),
             (options => options.MaximumDeduplicationEntries = 0, "MaximumDeduplicationEntries"),
+            (options => options.MaximumRetainedTerminalMembers = -1, "MaximumRetainedTerminalMembers"),
+            (options => options.MaximumRetainedTerminalMembers = 1_000_001, "MaximumRetainedTerminalMembers"),
             (options => options.MaximumMessageContentBytes = 0, "MaximumMessageContentBytes"),
             (options => options.MaximumMessageContentBytes = 16 * 1024 * 1024 + 1, "MaximumMessageContentBytes"),
             (options => options.MaximumMessageTypeBytes = 0, "MaximumMessageTypeBytes"),

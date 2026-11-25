@@ -12,7 +12,8 @@ internal sealed class CrowCastClusterActor : ReceiveActor
     private readonly global::Akka.Cluster.Cluster _cluster;
     private readonly IActorRef _mediator;
     private readonly CrowCastBackendContext _backendContext;
-    private readonly TaskCompletionSource _ready;
+    private readonly TaskCompletionSource _memberReady;
+    private readonly TaskCompletionSource _subscriptionReady;
     private readonly ILogger _logger;
     private readonly string _topic;
     private readonly DateTimeOffset _startedAtUtc;
@@ -21,18 +22,22 @@ internal sealed class CrowCastClusterActor : ReceiveActor
     private readonly Dictionary<CrowCastNodeIdentity, CrowCastNodeAnnouncement> _announcements = [];
     private readonly Dictionary<string, CrowCastMemberStatus> _statusByEndpoint = new(StringComparer.Ordinal);
     private readonly Dictionary<CrowCastNodeIdentity, CrowCastMemberStatus> _statusByIdentity = [];
+    private readonly Dictionary<CrowCastNodeIdentity, long> _terminalIdentityOrder = [];
     private ICancelable _announcementSchedule = Cancelable.CreateCanceled();
     private long _rejectedWireInputCount;
+    private long _terminalIdentitySequence;
 
     public CrowCastClusterActor(
         CrowCastBackendContext backendContext,
-        TaskCompletionSource ready,
+        TaskCompletionSource memberReady,
+        TaskCompletionSource subscriptionReady,
         ILogger logger,
         DateTimeOffset startedAtUtc,
         TimeProvider timeProvider)
     {
         _backendContext = backendContext;
-        _ready = ready;
+        _memberReady = memberReady;
+        _subscriptionReady = subscriptionReady;
         _logger = logger;
         _startedAtUtc = startedAtUtc;
         _timeProvider = timeProvider;
@@ -94,7 +99,7 @@ internal sealed class CrowCastClusterActor : ReceiveActor
     private void HandleSubscribeAck()
     {
         PublishLocalAnnouncement();
-        _ready.TrySetResult();
+        _subscriptionReady.TrySetResult();
     }
 
     private void PublishLocalAnnouncement()
@@ -143,15 +148,26 @@ internal sealed class CrowCastClusterActor : ReceiveActor
         }
     }
 
-    private Task HandleMemberRemovedAsync(global::Akka.Cluster.ClusterEvent.MemberRemoved message)
+    private async Task HandleMemberRemovedAsync(global::Akka.Cluster.ClusterEvent.MemberRemoved message)
     {
         var status = message.PreviousStatus is global::Akka.Cluster.MemberStatus.Leaving or global::Akka.Cluster.MemberStatus.Exiting
             ? CrowCastMemberStatus.Left
             : CrowCastMemberStatus.Dead;
-        return UpdateClusterStatusAsync(message.Member, status);
+        var endpoint = message.Member.Address.ToString();
+        _identitiesByEndpoint.TryGetValue(endpoint, out var identity);
+
+        await UpdateClusterStatusAsync(message.Member, status).ConfigureAwait(false);
+
+        if (identity is null)
+        {
+            _statusByEndpoint.Remove(endpoint);
+            return;
+        }
+
+        CompactTerminalIdentity(endpoint, identity, status);
     }
 
-    private Task HandleAnnouncementAsync(CrowCastNodeAnnouncement announcement)
+    private async Task HandleAnnouncementAsync(CrowCastNodeAnnouncement announcement)
     {
         if (!CrowCastWireValidator.TryValidate(
                 announcement,
@@ -160,7 +176,7 @@ internal sealed class CrowCastClusterActor : ReceiveActor
                 out var rejectionReason))
         {
             LogRejectedWireInput("node_announcement", rejectionReason);
-            return Task.CompletedTask;
+            return;
         }
 
         var identity = new CrowCastNodeIdentity(
@@ -170,7 +186,8 @@ internal sealed class CrowCastClusterActor : ReceiveActor
         if (_statusByIdentity.TryGetValue(identity, out var identityStatus) &&
             identityStatus is CrowCastMemberStatus.Dead or CrowCastMemberStatus.Left)
         {
-            return NotifyMemberAsync(identity, announcement, identityStatus);
+            await NotifyMemberAsync(identity, announcement, identityStatus).ConfigureAwait(false);
+            return;
         }
 
         _identitiesByEndpoint.TryGetValue(announcement.Endpoint, out var previousIdentity);
@@ -179,7 +196,22 @@ internal sealed class CrowCastClusterActor : ReceiveActor
             _announcements.TryGetValue(previousIdentity, out var previousAnnouncement) &&
             previousAnnouncement.StartedAtUtc > announcement.StartedAtUtc)
         {
-            return Task.CompletedTask;
+            return;
+        }
+
+        if (previousIdentity is not null &&
+            previousIdentity != identity &&
+            _announcements.TryGetValue(previousIdentity, out previousAnnouncement))
+        {
+            await NotifyMemberAsync(
+                    previousIdentity,
+                    previousAnnouncement,
+                    CrowCastMemberStatus.Dead)
+                .ConfigureAwait(false);
+            CompactTerminalIdentity(
+                announcement.Endpoint,
+                previousIdentity,
+                CrowCastMemberStatus.Dead);
         }
 
         _identitiesByEndpoint[announcement.Endpoint] = identity;
@@ -191,10 +223,10 @@ internal sealed class CrowCastClusterActor : ReceiveActor
 
         _statusByIdentity[identity] = status;
 
-        return NotifyMemberAsync(identity, announcement, status);
+        await NotifyMemberAsync(identity, announcement, status).ConfigureAwait(false);
     }
 
-    private Task HandleLeavingAsync(CrowCastNodeLeaving leaving)
+    private async Task HandleLeavingAsync(CrowCastNodeLeaving leaving)
     {
         if (!CrowCastWireValidator.TryValidate(
                 leaving,
@@ -203,7 +235,7 @@ internal sealed class CrowCastClusterActor : ReceiveActor
                 out var rejectionReason))
         {
             LogRejectedWireInput("node_leaving", rejectionReason);
-            return Task.CompletedTask;
+            return;
         }
 
         var identity = new CrowCastNodeIdentity(
@@ -216,11 +248,8 @@ internal sealed class CrowCastClusterActor : ReceiveActor
             leaving.LeftAtUtc,
             leaving.Metadata);
 
-        _identitiesByEndpoint[leaving.Endpoint] = identity;
-        _announcements[identity] = announcement;
-        _statusByEndpoint[leaving.Endpoint] = CrowCastMemberStatus.Left;
-        _statusByIdentity[identity] = CrowCastMemberStatus.Left;
-        return NotifyMemberAsync(identity, announcement, CrowCastMemberStatus.Left);
+        await NotifyMemberAsync(identity, announcement, CrowCastMemberStatus.Left).ConfigureAwait(false);
+        CompactTerminalIdentity(leaving.Endpoint, identity, CrowCastMemberStatus.Left);
     }
 
     private Task HandleMessageAsync(CrowCastMessageEnvelope envelope)
@@ -238,6 +267,12 @@ internal sealed class CrowCastClusterActor : ReceiveActor
 
     private Task UpdateClusterStatusAsync(global::Akka.Cluster.Member member, CrowCastMemberStatus status)
     {
+        if (member.Address == _cluster.SelfAddress && status == CrowCastMemberStatus.Alive)
+        {
+            PublishLocalAnnouncement();
+            _memberReady.TrySetResult();
+        }
+
         var endpoint = member.Address.ToString();
         if (_statusByEndpoint.TryGetValue(endpoint, out var currentStatus) &&
             currentStatus is CrowCastMemberStatus.Dead or CrowCastMemberStatus.Left)
@@ -262,6 +297,45 @@ internal sealed class CrowCastClusterActor : ReceiveActor
         _statusByIdentity[identity] = status;
 
         return NotifyMemberAsync(identity, announcement, status);
+    }
+
+    private void CompactTerminalIdentity(
+        string endpoint,
+        CrowCastNodeIdentity identity,
+        CrowCastMemberStatus status)
+    {
+        if (!_identitiesByEndpoint.TryGetValue(endpoint, out var mappedIdentity) ||
+            mappedIdentity == identity)
+        {
+            _identitiesByEndpoint.Remove(endpoint);
+            _statusByEndpoint.Remove(endpoint);
+        }
+
+        _announcements.Remove(identity);
+        _statusByIdentity[identity] = status;
+        _terminalIdentityOrder[identity] = ++_terminalIdentitySequence;
+        PruneTerminalIdentities();
+    }
+
+    private void PruneTerminalIdentities()
+    {
+        var overflow = _terminalIdentityOrder.Count -
+            _backendContext.Settings.MaximumRetainedTerminalMembers;
+        if (overflow <= 0)
+        {
+            return;
+        }
+
+        var identities = _terminalIdentityOrder
+            .OrderBy(pair => pair.Value)
+            .Take(overflow)
+            .Select(pair => pair.Key)
+            .ToArray();
+        foreach (var identity in identities)
+        {
+            _terminalIdentityOrder.Remove(identity);
+            _statusByIdentity.Remove(identity);
+        }
     }
 
     private Task NotifyMemberAsync(

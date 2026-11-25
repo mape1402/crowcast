@@ -41,14 +41,15 @@ crowCast.UseAkka(options =>
 {
     options.HostName = "0.0.0.0";
     options.Port = 4053;
-    options.PublicHostName = "orders-api-0.orders-api";
+    options.PublicHostName = Environment.GetEnvironmentVariable("POD_IP");
     options.PublicPort = 4053;
 });
 
-crowCast.UseStaticNodeDiscovery(
-    new CrowCastEndpoint("orders-api-0.orders-api", 4053));
+crowCast.UseDnsNodeDiscovery("orders-api-crowcast", 4053);
 crowCast.AddEventHandler<ApplicationCrowCastHandler>();
 ```
+
+`orders-api-crowcast` is a stable DNS name for the workload, not a replica identity. In Kubernetes, use a headless Service with `publishNotReadyAddresses: true`, inject the pod IP through the downward API, and advertise that IP through `PublicHostName`. Each startup resolves the current pod addresses while the CrowCast node ID and generation remain random. The template in [`deploy/kubernetes/headless-service.yaml`](deploy/kubernetes/headless-service.yaml) contains the required Service shape.
 
 Publish an opaque payload with an application-defined type:
 
@@ -73,6 +74,10 @@ CrowCast exposes these states:
 - `Left`: the replica announced an orderly departure.
 
 `SuspectAfter` configures the acceptable heartbeat pause. `DeadAfter` includes the subsequent stable period before the split-brain resolver can remove a member. A later announcement can refute `Suspect`; `Dead` and `Left` are terminal for that node generation.
+
+When Akka removes a member, the backend releases its endpoint and announcement state immediately. CrowCast retains only the newest terminal members for diagnostics and late-message suppression, bounded by `MaximumRetainedTerminalMembers` (1,024 by default). Set it to zero when the application needs only membership-change events and no terminal history in `Members`.
+
+Backend startup completes only after Akka reports the local member as `Up`; subscribing to the local pub/sub mediator alone is not treated as cluster readiness.
 
 ## Coordinator
 
@@ -102,6 +107,8 @@ dotnet run --project samples/CrowCast.Sample -- --port 4054 --seed-port 4053
 ```
 
 Both replicas generate their identities at runtime, discover each other, exchange sample messages, and report the same coordinator after membership converges.
+
+To exercise DNS discovery instead of a fixed local seed, pass `--seed-service <dns-name>` to every replica.
 
 ## Security status
 

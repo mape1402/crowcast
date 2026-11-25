@@ -8,6 +8,7 @@ using CrowCast.Akka.Configuration;
 using CrowCast.Akka.Internal;
 using CrowCast.Akka.Transport;
 using CrowCast.Backends;
+using CrowCast.Membership;
 using CrowCast.Messaging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -156,6 +157,139 @@ public sealed class AkkaBackendCoverageTests
         await backend.StopAsync(CancellationToken.None);
     }
 
+    [Fact]
+    public async Task Cluster_actor_replaces_an_older_generation_at_the_same_endpoint()
+    {
+        var notifications = new ConcurrentQueue<CrowCastBackendNotification>();
+        var backend = CreateBackend(new StaticCrowCastNodeDiscovery([]));
+        await backend.StartAsync(CreateContext(notifications), CancellationToken.None);
+        var actor = GetPrivateField<IActorRef>(backend, "_clusterActor");
+        var now = DateTimeOffset.UtcNow;
+        const string endpoint = "akka.tcp://coverage@127.0.0.1:5201";
+        var firstIdentity = CrowCastNodeIdentity.New();
+        var secondIdentity = CrowCastNodeIdentity.New();
+
+        actor.Tell(CreateAnnouncement(firstIdentity, endpoint, now));
+        actor.Tell(CreateAnnouncement(secondIdentity, endpoint, now.AddSeconds(1)));
+
+        await WaitUntilAsync(
+            () => notifications.OfType<CrowCastBackendMemberChanged>().Any(change =>
+                      change.Member.Identity == firstIdentity &&
+                      change.Member.Status == CrowCastMemberStatus.Dead) &&
+                  notifications.OfType<CrowCastBackendMemberChanged>().Any(change =>
+                      change.Member.Identity == secondIdentity &&
+                      change.Member.Status == CrowCastMemberStatus.Alive),
+            TimeSpan.FromSeconds(5));
+
+        actor.Tell(CreateLeaving(firstIdentity, endpoint, now.AddSeconds(1)));
+        await WaitUntilAsync(
+            () => notifications.OfType<CrowCastBackendMemberChanged>().Any(change =>
+                change.Member.Identity == firstIdentity &&
+                change.Member.Status == CrowCastMemberStatus.Left),
+            TimeSpan.FromSeconds(5));
+
+        await backend.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Cluster_actor_compacts_removed_members_and_preserves_terminal_status()
+    {
+        var notifications = new ConcurrentQueue<CrowCastBackendNotification>();
+        var backend = CreateBackend(new StaticCrowCastNodeDiscovery([]));
+        await backend.StartAsync(CreateContext(notifications), CancellationToken.None);
+        var actor = GetPrivateField<IActorRef>(backend, "_clusterActor");
+        var identity = CrowCastNodeIdentity.New();
+        var now = DateTimeOffset.UtcNow;
+        const string endpoint = "akka.tcp://coverage@127.0.0.1:5202";
+
+        actor.Tell(CreateAnnouncement(identity, endpoint, now));
+        await WaitUntilAsync(
+            () => notifications.OfType<CrowCastBackendMemberChanged>().Any(change =>
+                change.Member.Identity == identity &&
+                change.Member.Status == CrowCastMemberStatus.Alive),
+            TimeSpan.FromSeconds(5));
+
+        var memberAddress = Address.Parse(endpoint);
+        var downedMember = CreateMember(memberAddress, 20, MemberStatus.Down);
+        var upMember = CreateMember(memberAddress, 20, MemberStatus.Up);
+        var removedMember = CreateMember(memberAddress, 20, MemberStatus.Removed);
+        actor.Tell(new global::Akka.Cluster.ClusterEvent.MemberDowned(downedMember));
+        actor.Tell(new global::Akka.Cluster.ClusterEvent.MemberUp(upMember));
+        actor.Tell(new global::Akka.Cluster.ClusterEvent.MemberRemoved(removedMember, MemberStatus.Up));
+        var unknown = CreateMember(
+            Address.Parse("akka.tcp://coverage@127.0.0.1:5299"),
+            21,
+            MemberStatus.Removed);
+        actor.Tell(new global::Akka.Cluster.ClusterEvent.MemberRemoved(unknown, MemberStatus.Up));
+        actor.Tell(CreateAnnouncement(identity, endpoint, now));
+
+        await WaitUntilAsync(
+            () => notifications.OfType<CrowCastBackendMemberChanged>()
+                .Where(change => change.Member.Identity == identity)
+                .LastOrDefault()?.Member.Status == CrowCastMemberStatus.Dead,
+            TimeSpan.FromSeconds(5));
+
+        await backend.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Cluster_actor_bounds_tombstones_and_accepts_an_evicted_identity()
+    {
+        var notifications = new ConcurrentQueue<CrowCastBackendNotification>();
+        var backend = CreateBackend(new StaticCrowCastNodeDiscovery([]));
+        await backend.StartAsync(CreateContext(notifications, maximumRetainedTerminalMembers: 1), CancellationToken.None);
+        var actor = GetPrivateField<IActorRef>(backend, "_clusterActor");
+        var firstIdentity = CrowCastNodeIdentity.New();
+        var secondIdentity = CrowCastNodeIdentity.New();
+        var now = DateTimeOffset.UtcNow;
+        const string firstEndpoint = "akka.tcp://coverage@127.0.0.1:5203";
+
+        actor.Tell(CreateLeaving(firstIdentity, firstEndpoint, now));
+        actor.Tell(CreateAnnouncement(firstIdentity, firstEndpoint, now));
+
+        await WaitUntilAsync(
+            () => notifications.OfType<CrowCastBackendMemberChanged>().Any(change =>
+                change.Member.Identity == firstIdentity &&
+                change.Member.Status == CrowCastMemberStatus.Left),
+            TimeSpan.FromSeconds(5));
+
+        actor.Tell(CreateLeaving(
+            secondIdentity,
+            "akka.tcp://coverage@127.0.0.1:5204",
+            now.AddSeconds(1)));
+        actor.Tell(CreateAnnouncement(firstIdentity, firstEndpoint, now.AddSeconds(2)));
+
+        await WaitUntilAsync(
+            () => notifications.OfType<CrowCastBackendMemberChanged>()
+                .Where(change => change.Member.Identity == firstIdentity)
+                .LastOrDefault()?.Member.Status == CrowCastMemberStatus.Alive,
+            TimeSpan.FromSeconds(5));
+
+        await backend.StopAsync(CancellationToken.None);
+    }
+
+    private static CrowCastNodeAnnouncement CreateAnnouncement(
+        CrowCastNodeIdentity identity,
+        string endpoint,
+        DateTimeOffset startedAtUtc) =>
+        new(
+            identity.NodeId.Value,
+            identity.Generation.Value,
+            endpoint,
+            startedAtUtc,
+            new Dictionary<string, string>());
+
+    private static CrowCastNodeLeaving CreateLeaving(
+        CrowCastNodeIdentity identity,
+        string endpoint,
+        DateTimeOffset leftAtUtc) =>
+        new(
+            identity.NodeId.Value,
+            identity.Generation.Value,
+            endpoint,
+            leftAtUtc,
+            new Dictionary<string, string>());
+
     private static AkkaCrowCastBackend CreateBackend(
         ICrowCastNodeDiscovery discovery,
         AkkaCrowCastOptions? options = null) =>
@@ -172,7 +306,8 @@ public sealed class AkkaBackendCoverageTests
             TimeProvider.System);
 
     private static CrowCastBackendContext CreateContext(
-        ConcurrentQueue<CrowCastBackendNotification>? notifications = null)
+        ConcurrentQueue<CrowCastBackendNotification>? notifications = null,
+        int maximumRetainedTerminalMembers = 1_024)
     {
         var limits = new CrowCastProtocolLimits(
             64 * 1024,
@@ -188,7 +323,8 @@ public sealed class AkkaBackendCoverageTests
             TimeSpan.FromSeconds(1),
             TimeSpan.FromSeconds(2),
             new Dictionary<string, string>(),
-            limits);
+            limits,
+            maximumRetainedTerminalMembers);
         return new CrowCastBackendContext(
             CrowCast.Membership.CrowCastNodeIdentity.New(),
             settings,

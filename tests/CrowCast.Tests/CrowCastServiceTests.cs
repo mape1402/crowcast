@@ -19,6 +19,40 @@ public sealed class CrowCastServiceTests
     }
 
     [Fact]
+    public async Task Terminal_members_are_not_resurrected_and_history_is_bounded()
+    {
+        await using var runtime = await CrowCastRuntimeHarness.StartAsync(options =>
+            options.MaximumRetainedTerminalMembers = 1);
+        var first = CrowCastNodeIdentity.New();
+        var second = CrowCastNodeIdentity.New();
+        var now = DateTimeOffset.UtcNow;
+
+        await runtime.Backend.EmitAsync(new CrowCastBackendMemberChanged(
+            new CrowCastMember(first, CrowCastMemberStatus.Alive, now, now, "first")));
+        await runtime.Backend.EmitAsync(new CrowCastBackendMemberChanged(
+            new CrowCastMember(first, CrowCastMemberStatus.Dead, now, now.AddSeconds(1), "first")));
+        await runtime.Backend.EmitAsync(new CrowCastBackendMemberChanged(
+            new CrowCastMember(first, CrowCastMemberStatus.Dead, now, now.AddSeconds(2), "first")));
+        await runtime.Backend.EmitAsync(new CrowCastBackendMemberChanged(
+            new CrowCastMember(first, CrowCastMemberStatus.Alive, now, now.AddSeconds(3), "first")));
+
+        Assert.Equal(
+            CrowCastMemberStatus.Dead,
+            runtime.CrowCast.Members.Single(member => member.Identity == first).Status);
+
+        await runtime.Backend.EmitAsync(new CrowCastBackendMemberChanged(
+            new CrowCastMember(second, CrowCastMemberStatus.Left, now, now.AddSeconds(4), "second")));
+
+        Assert.DoesNotContain(runtime.CrowCast.Members, member => member.Identity == first);
+        Assert.Equal(
+            CrowCastMemberStatus.Left,
+            runtime.CrowCast.Members.Single(member => member.Identity == second).Status);
+        Assert.Contains(
+            runtime.Events.Events.OfType<CrowCastMemberChanged>(),
+            change => change.Current.Identity == first && change.Current.Status == CrowCastMemberStatus.Dead);
+    }
+
+    [Fact]
     public async Task Publish_assigns_the_local_node_as_contextual_origin()
     {
         await using var runtime = await CrowCastRuntimeHarness.StartAsync();

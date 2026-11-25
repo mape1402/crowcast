@@ -6,4 +6,5 @@ public sealed record CrowCastBackendSettings(
     TimeSpan SuspectAfter,
     TimeSpan DeadAfter,
     IReadOnlyDictionary<string, string> Metadata,
-    CrowCastProtocolLimits Limits);
+    CrowCastProtocolLimits Limits,
+    int MaximumRetainedTerminalMembers = 1_024);

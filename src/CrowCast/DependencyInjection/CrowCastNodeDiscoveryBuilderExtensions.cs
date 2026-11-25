@@ -7,6 +7,19 @@ namespace CrowCast.DependencyInjection;
 
 public static class CrowCastNodeDiscoveryBuilderExtensions
 {
+    public static CrowCastBuilder UseDnsNodeDiscovery(
+        this CrowCastBuilder builder,
+        string hostName,
+        int port)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.RemoveAll<ICrowCastNodeDiscovery>();
+        builder.Services.AddSingleton<ICrowCastNodeDiscovery>(
+            new DnsCrowCastNodeDiscovery(hostName, port));
+        return builder;
+    }
+
     public static CrowCastBuilder UseStaticNodeDiscovery(
         this CrowCastBuilder builder,
         params CrowCastEndpoint[] endpoints)

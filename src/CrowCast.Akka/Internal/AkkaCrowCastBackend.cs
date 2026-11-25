@@ -61,24 +61,28 @@ internal sealed class AkkaCrowCastBackend : ICrowCastBackend
             else
             {
                 var seedNodes = endpoints
-                    .Select(endpoint => Address.Parse($"akka.tcp://{systemName}@{endpoint.Host}:{endpoint.Port}"))
+                    .Select(endpoint => new Address("akka.tcp", systemName, endpoint.Host, endpoint.Port))
                     .ToImmutableList();
                 cluster.JoinSeedNodes(seedNodes);
                 _logger.LogInformation("CrowCast is joining Akka seed nodes {SeedNodes}", seedNodes);
             }
 
-            var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var memberReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var subscriptionReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var actor = actorSystem.ActorOf(
                 Props.Create(() => new CrowCastClusterActor(
                     context,
-                    ready,
+                    memberReady,
+                    subscriptionReady,
                     _loggerFactory.CreateLogger<CrowCastClusterActor>(),
                     _timeProvider.GetUtcNow(),
                     _timeProvider)),
                 "crowcast");
             _clusterActor = actor;
 
-            await ready.Task.WaitAsync(_options.StartupTimeout, cancellationToken).ConfigureAwait(false);
+            await Task.WhenAll(memberReady.Task, subscriptionReady.Task)
+                .WaitAsync(_options.StartupTimeout, cancellationToken)
+                .ConfigureAwait(false);
         }
         catch
         {
