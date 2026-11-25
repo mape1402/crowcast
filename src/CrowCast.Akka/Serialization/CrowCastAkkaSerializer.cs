@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Akka.Actor;
 using Akka.Serialization;
 using CrowCast.Akka.Transport;
@@ -10,7 +11,11 @@ public sealed class CrowCastAkkaSerializer : SerializerWithStringManifest
     private const string NodeAnnouncementManifest = "crowcast-node-v1";
     private const string NodeLeavingManifest = "crowcast-leave-v1";
     private const string MessageManifest = "crowcast-message-v1";
-    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.General);
+    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.General)
+    {
+        MaxDepth = 8,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
+    };
 
     public CrowCastAkkaSerializer(ExtendedActorSystem system)
         : base(system)

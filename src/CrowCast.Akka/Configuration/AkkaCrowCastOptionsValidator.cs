@@ -33,6 +33,11 @@ internal sealed class AkkaCrowCastOptionsValidator : IValidateOptions<AkkaCrowCa
             failures.Add("ShutdownTimeout must be positive.");
         }
 
+        if (options.MaximumFrameSizeBytes is < 32_000 or > 64 * 1024 * 1024)
+        {
+            failures.Add("MaximumFrameSizeBytes must be between 32000 bytes and 64 MiB.");
+        }
+
         return failures.Count == 0
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail(failures);

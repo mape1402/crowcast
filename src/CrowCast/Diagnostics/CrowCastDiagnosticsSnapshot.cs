@@ -13,5 +13,8 @@ public sealed record CrowCastDiagnosticsSnapshot(
     long MessagesReceived,
     long DuplicateMessages,
     long ExpiredMessages,
+    long RejectedMessages,
+    long RateLimitedMessages,
+    long RejectedMembershipUpdates,
     long MembershipChanges,
     long CoordinatorChanges);

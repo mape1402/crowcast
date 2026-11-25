@@ -24,10 +24,12 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
     private readonly ConcurrentDictionary<CrowCastMessageId, DateTimeOffset> _deduplication = new();
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private readonly CrowCastTelemetry _telemetry;
+    private readonly CrowCastFixedWindowRateLimiter _receiveRateLimiter;
     private CrowCastNodeIdentity? _coordinator;
     private int _started;
     private int _disposed;
     private int _messagesSinceCleanup;
+    private long _rejectionLogCount;
 
     public CrowCastService(
         ICrowCastBackend backend,
@@ -43,6 +45,10 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
         _timeProvider = timeProvider;
         LocalNode = CrowCastNodeIdentity.New();
         _telemetry = new CrowCastTelemetry(() => Members);
+        _receiveRateLimiter = new CrowCastFixedWindowRateLimiter(
+            _options.MaximumReceivedMessagesPerInterval,
+            _options.ReceivedMessageRateLimitInterval,
+            _timeProvider.GetUtcNow());
     }
 
     public CrowCastNodeIdentity LocalNode { get; }
@@ -159,6 +165,20 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
             throw new InvalidOperationException("CrowCast has not been started.");
         }
 
+        var now = _timeProvider.GetUtcNow();
+        if (!CrowCastInputValidator.TryValidateMessageShape(message, _options, out var reason) ||
+            CrowCastInputValidator.IsTooFarInFuture(message, _options, now) ||
+            CrowCastInputValidator.IsExpired(message, _options, now))
+        {
+            reason = string.IsNullOrEmpty(reason)
+                ? CrowCastInputValidator.IsTooFarInFuture(message, _options, now)
+                    ? "timestamp_too_far_in_future"
+                    : "expired"
+                : reason;
+            _telemetry.RecordRejectedMessage(reason);
+            throw new ArgumentException($"CrowCast rejected the message: {reason}.", nameof(message));
+        }
+
         var outbound = message.Origin is null ? message.WithOrigin(LocalNode) : message;
         await _backend.PublishAsync(outbound, cancellationToken).ConfigureAwait(false);
         _telemetry.RecordPublished();
@@ -193,7 +213,15 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
             _options.ExchangeInterval,
             _options.SuspectAfter,
             _options.DeadAfter,
-            metadata);
+            metadata,
+            new CrowCastProtocolLimits(
+                _options.MaximumMessageContentBytes,
+                _options.MaximumMessageTypeBytes,
+                _options.MaximumMetadataEntries,
+                _options.MaximumMetadataKeyBytes,
+                _options.MaximumMetadataValueBytes,
+                _options.MaximumEndpointBytes,
+                _options.MaximumClockSkew));
     }
 
     private async ValueTask HandleNotificationAsync(
@@ -237,6 +265,14 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
 
     private async ValueTask UpdateMemberAsync(CrowCastMember incoming, CancellationToken cancellationToken)
     {
+        var now = _timeProvider.GetUtcNow();
+        if (!CrowCastInputValidator.TryValidateMember(incoming, _options, now, out var rejectionReason))
+        {
+            _telemetry.RecordRejectedMembershipUpdate(rejectionReason);
+            LogRejectedInput("membership_update", rejectionReason);
+            return;
+        }
+
         CrowCastMember? previous;
         CrowCastMember current;
 
@@ -271,9 +307,32 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
     private async ValueTask ReceiveMessageAsync(CrowCastMessage message, CancellationToken cancellationToken)
     {
         var now = _timeProvider.GetUtcNow();
-        if (message.CreatedAtUtc + _options.MessageTimeToLive <= now)
+        if (!CrowCastInputValidator.TryValidateMessageShape(message, _options, out var rejectionReason))
+        {
+            _telemetry.RecordRejectedMessage(rejectionReason);
+            LogRejectedInput("message", rejectionReason);
+            return;
+        }
+
+        if (CrowCastInputValidator.IsTooFarInFuture(message, _options, now))
+        {
+            const string reason = "timestamp_too_far_in_future";
+            _telemetry.RecordRejectedMessage(reason);
+            LogRejectedInput("message", reason);
+            return;
+        }
+
+        if (CrowCastInputValidator.IsExpired(message, _options, now))
         {
             _telemetry.RecordExpired();
+            return;
+        }
+
+        if (!_receiveRateLimiter.TryAcquire(now))
+        {
+            const string reason = "rate_limit";
+            _telemetry.RecordRejectedMessage(reason, rateLimited: true);
+            LogRejectedInput("message", reason);
             return;
         }
 
@@ -395,6 +454,19 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
                     handler.GetType(),
                     @event.GetType());
             }
+        }
+    }
+
+    private void LogRejectedInput(string inputType, string reason)
+    {
+        var count = Interlocked.Increment(ref _rejectionLogCount);
+        if (count == 1 || count % 100 == 0)
+        {
+            _logger.LogWarning(
+                "CrowCast rejected {InputType} input because {Reason}; rejected input count is {RejectedCount}",
+                inputType,
+                reason,
+                count);
         }
     }
 

@@ -16,22 +16,26 @@ internal sealed class CrowCastClusterActor : ReceiveActor
     private readonly ILogger _logger;
     private readonly string _topic;
     private readonly DateTimeOffset _startedAtUtc;
+    private readonly TimeProvider _timeProvider;
     private readonly Dictionary<string, CrowCastNodeIdentity> _identitiesByEndpoint = new(StringComparer.Ordinal);
     private readonly Dictionary<CrowCastNodeIdentity, CrowCastNodeAnnouncement> _announcements = [];
     private readonly Dictionary<string, CrowCastMemberStatus> _statusByEndpoint = new(StringComparer.Ordinal);
     private readonly Dictionary<CrowCastNodeIdentity, CrowCastMemberStatus> _statusByIdentity = [];
     private ICancelable? _announcementSchedule;
+    private long _rejectedWireInputCount;
 
     public CrowCastClusterActor(
         CrowCastBackendContext backendContext,
         TaskCompletionSource ready,
         ILogger logger,
-        DateTimeOffset startedAtUtc)
+        DateTimeOffset startedAtUtc,
+        TimeProvider timeProvider)
     {
         _backendContext = backendContext;
         _ready = ready;
         _logger = logger;
         _startedAtUtc = startedAtUtc;
+        _timeProvider = timeProvider;
         _topic = $"crowcast-{backendContext.Settings.ClusterName}";
         _cluster = global::Akka.Cluster.Cluster.Get(Context.System);
         _mediator = DistributedPubSub.Get(Context.System).Mediator;
@@ -114,7 +118,7 @@ internal sealed class CrowCastClusterActor : ReceiveActor
                 identity.NodeId.Value,
                 identity.Generation.Value,
                 _cluster.SelfAddress.ToString(),
-                DateTimeOffset.UtcNow,
+                _timeProvider.GetUtcNow(),
                 _backendContext.Settings.Metadata)));
         message.Completion.TrySetResult();
     }
@@ -149,6 +153,16 @@ internal sealed class CrowCastClusterActor : ReceiveActor
 
     private Task HandleAnnouncementAsync(CrowCastNodeAnnouncement announcement)
     {
+        if (!CrowCastWireValidator.TryValidate(
+                announcement,
+                _backendContext.Settings.Limits,
+                _timeProvider.GetUtcNow(),
+                out var rejectionReason))
+        {
+            LogRejectedWireInput("node_announcement", rejectionReason);
+            return Task.CompletedTask;
+        }
+
         var identity = new CrowCastNodeIdentity(
             new CrowCastNodeId(announcement.NodeId),
             new CrowCastNodeGeneration(announcement.Generation));
@@ -185,6 +199,16 @@ internal sealed class CrowCastClusterActor : ReceiveActor
 
     private Task HandleLeavingAsync(CrowCastNodeLeaving leaving)
     {
+        if (!CrowCastWireValidator.TryValidate(
+                leaving,
+                _backendContext.Settings.Limits,
+                _timeProvider.GetUtcNow(),
+                out var rejectionReason))
+        {
+            LogRejectedWireInput("node_leaving", rejectionReason);
+            return Task.CompletedTask;
+        }
+
         var identity = new CrowCastNodeIdentity(
             new CrowCastNodeId(leaving.NodeId),
             new CrowCastNodeGeneration(leaving.Generation));
@@ -202,10 +226,18 @@ internal sealed class CrowCastClusterActor : ReceiveActor
         return NotifyMemberAsync(identity, announcement, CrowCastMemberStatus.Left);
     }
 
-    private Task HandleMessageAsync(CrowCastMessageEnvelope envelope) =>
-        _backendContext.NotifyAsync(
+    private Task HandleMessageAsync(CrowCastMessageEnvelope envelope)
+    {
+        if (!CrowCastWireValidator.TryValidate(envelope, out var rejectionReason))
+        {
+            LogRejectedWireInput("message", rejectionReason);
+            return Task.CompletedTask;
+        }
+
+        return _backendContext.NotifyAsync(
             new CrowCastBackendMessageReceived(CrowCastWireMapper.ToMessage(envelope)),
             CancellationToken.None).AsTask();
+    }
 
     private Task UpdateClusterStatusAsync(global::Akka.Cluster.Member member, CrowCastMemberStatus status)
     {
@@ -250,12 +282,25 @@ internal sealed class CrowCastClusterActor : ReceiveActor
             identity,
             status,
             announcement.StartedAtUtc,
-            DateTimeOffset.UtcNow,
+            _timeProvider.GetUtcNow(),
             announcement.Endpoint,
             announcement.Metadata);
         return _backendContext.NotifyAsync(
             new CrowCastBackendMemberChanged(member),
             CancellationToken.None).AsTask();
+    }
+
+    private void LogRejectedWireInput(string inputType, string reason)
+    {
+        var count = ++_rejectedWireInputCount;
+        if (count == 1 || count % 100 == 0)
+        {
+            _logger.LogWarning(
+                "CrowCast rejected {InputType} wire input because {Reason}; rejected wire input count is {RejectedCount}",
+                inputType,
+                reason,
+                count);
+        }
     }
 
     internal sealed record PublishMessage(CrowCast.Messaging.CrowCastMessage Message);

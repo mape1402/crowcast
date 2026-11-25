@@ -12,12 +12,17 @@ internal sealed class CrowCastTelemetry : IDisposable
     private readonly Counter<long> _messagesReceived;
     private readonly Counter<long> _duplicateMessages;
     private readonly Counter<long> _expiredMessages;
+    private readonly Counter<long> _rejectedMessages;
+    private readonly Counter<long> _rejectedMembershipUpdates;
     private readonly Counter<long> _membershipChanges;
     private readonly Counter<long> _coordinatorChanges;
     private long _publishedCount;
     private long _receivedCount;
     private long _duplicateCount;
     private long _expiredCount;
+    private long _rejectedCount;
+    private long _rateLimitedCount;
+    private long _rejectedMembershipUpdateCount;
     private long _membershipChangeCount;
     private long _coordinatorChangeCount;
 
@@ -28,6 +33,8 @@ internal sealed class CrowCastTelemetry : IDisposable
         _messagesReceived = _meter.CreateCounter<long>("crowcast.messages.received");
         _duplicateMessages = _meter.CreateCounter<long>("crowcast.messages.duplicates");
         _expiredMessages = _meter.CreateCounter<long>("crowcast.messages.expired");
+        _rejectedMessages = _meter.CreateCounter<long>("crowcast.messages.rejected");
+        _rejectedMembershipUpdates = _meter.CreateCounter<long>("crowcast.membership.rejected");
         _membershipChanges = _meter.CreateCounter<long>("crowcast.membership.changes");
         _coordinatorChanges = _meter.CreateCounter<long>("crowcast.coordinator.changes");
         _meter.CreateObservableGauge("crowcast.members", ObserveMembers);
@@ -55,6 +62,25 @@ internal sealed class CrowCastTelemetry : IDisposable
     {
         Interlocked.Increment(ref _expiredCount);
         _expiredMessages.Add(1);
+    }
+
+    public void RecordRejectedMessage(string reason, bool rateLimited = false)
+    {
+        Interlocked.Increment(ref _rejectedCount);
+        if (rateLimited)
+        {
+            Interlocked.Increment(ref _rateLimitedCount);
+        }
+
+        _rejectedMessages.Add(1, new KeyValuePair<string, object?>("crowcast.rejection.reason", reason));
+    }
+
+    public void RecordRejectedMembershipUpdate(string reason)
+    {
+        Interlocked.Increment(ref _rejectedMembershipUpdateCount);
+        _rejectedMembershipUpdates.Add(
+            1,
+            new KeyValuePair<string, object?>("crowcast.rejection.reason", reason));
     }
 
     public void RecordMembershipChange(CrowCastMemberStatus status)
@@ -85,6 +111,9 @@ internal sealed class CrowCastTelemetry : IDisposable
             Interlocked.Read(ref _receivedCount),
             Interlocked.Read(ref _duplicateCount),
             Interlocked.Read(ref _expiredCount),
+            Interlocked.Read(ref _rejectedCount),
+            Interlocked.Read(ref _rateLimitedCount),
+            Interlocked.Read(ref _rejectedMembershipUpdateCount),
             Interlocked.Read(ref _membershipChangeCount),
             Interlocked.Read(ref _coordinatorChangeCount));
     }

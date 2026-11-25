@@ -71,6 +71,102 @@ public sealed class CrowCastServiceTests
     }
 
     [Fact]
+    public async Task Oversized_outbound_messages_are_rejected_before_reaching_the_backend()
+    {
+        await using var runtime = await CrowCastRuntimeHarness.StartAsync(options =>
+        {
+            options.MaximumMessageContentBytes = 4;
+        });
+        var message = CrowCastMessage.Create("oversized", new byte[5]);
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(async () =>
+            await runtime.CrowCast.PublishAsync(message));
+
+        Assert.Contains("content_too_large", exception.Message);
+        Assert.Empty(runtime.Backend.PublishedMessages);
+        Assert.Equal(1, runtime.Diagnostics.GetSnapshot().RejectedMessages);
+    }
+
+    [Fact]
+    public async Task Oversized_inbound_messages_are_rejected_without_dispatching_an_event()
+    {
+        await using var runtime = await CrowCastRuntimeHarness.StartAsync(options =>
+        {
+            options.MaximumMessageContentBytes = 4;
+        });
+        var message = CrowCastMessage.Create("oversized", new byte[5]);
+
+        await runtime.Backend.EmitAsync(new CrowCastBackendMessageReceived(message));
+
+        Assert.Empty(runtime.Events.Events.OfType<CrowCastMessageReceived>());
+        Assert.Equal(1, runtime.Diagnostics.GetSnapshot().RejectedMessages);
+    }
+
+    [Fact]
+    public async Task Messages_too_far_in_the_future_are_rejected()
+    {
+        await using var runtime = await CrowCastRuntimeHarness.StartAsync(options =>
+        {
+            options.MaximumClockSkew = TimeSpan.FromSeconds(1);
+        });
+        var message = new CrowCastMessage(
+            CrowCastMessageId.New(),
+            "future",
+            ReadOnlyMemory<byte>.Empty,
+            DateTimeOffset.UtcNow + TimeSpan.FromMinutes(1));
+
+        await runtime.Backend.EmitAsync(new CrowCastBackendMessageReceived(message));
+
+        Assert.Empty(runtime.Events.Events.OfType<CrowCastMessageReceived>());
+        Assert.Equal(1, runtime.Diagnostics.GetSnapshot().RejectedMessages);
+    }
+
+    [Fact]
+    public async Task Receive_rate_limit_drops_messages_above_the_configured_burst()
+    {
+        await using var runtime = await CrowCastRuntimeHarness.StartAsync(options =>
+        {
+            options.MaximumReceivedMessagesPerInterval = 2;
+            options.ReceivedMessageRateLimitInterval = TimeSpan.FromMinutes(1);
+        });
+
+        for (var index = 0; index < 3; index++)
+        {
+            await runtime.Backend.EmitAsync(new CrowCastBackendMessageReceived(
+                CrowCastMessage.Create("burst", BitConverter.GetBytes(index))));
+        }
+
+        Assert.Equal(2, runtime.Events.Events.OfType<CrowCastMessageReceived>().Count());
+        var snapshot = runtime.Diagnostics.GetSnapshot();
+        Assert.Equal(2, snapshot.MessagesReceived);
+        Assert.Equal(1, snapshot.RejectedMessages);
+        Assert.Equal(1, snapshot.RateLimitedMessages);
+    }
+
+    [Fact]
+    public async Task Invalid_membership_metadata_is_rejected()
+    {
+        await using var runtime = await CrowCastRuntimeHarness.StartAsync(options =>
+        {
+            options.MaximumMetadataEntries = 0;
+        });
+        var remote = CrowCastNodeIdentity.New();
+        var now = DateTimeOffset.UtcNow;
+
+        await runtime.Backend.EmitAsync(new CrowCastBackendMemberChanged(
+            new CrowCastMember(
+                remote,
+                CrowCastMemberStatus.Alive,
+                now,
+                now,
+                "akka.tcp://remote",
+                new Dictionary<string, string> { ["unexpected"] = "value" })));
+
+        Assert.DoesNotContain(runtime.CrowCast.Members, member => member.Identity == remote);
+        Assert.Equal(1, runtime.Diagnostics.GetSnapshot().RejectedMembershipUpdates);
+    }
+
+    [Fact]
     public async Task Coordinator_is_the_lowest_alive_random_identity()
     {
         await using var runtime = await CrowCastRuntimeHarness.StartAsync();

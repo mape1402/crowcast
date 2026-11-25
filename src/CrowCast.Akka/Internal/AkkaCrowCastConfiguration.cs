@@ -24,6 +24,14 @@ internal static class AkkaCrowCastConfiguration
     public static Config Create(CrowCastBackendSettings settings, AkkaCrowCastOptions options)
     {
         var stableAfter = settings.DeadAfter - settings.SuspectAfter;
+        var requiredFrameSize = EstimateMaximumMessageFrameSize(settings.Limits);
+        if (options.MaximumFrameSizeBytes < requiredFrameSize)
+        {
+            throw new InvalidOperationException(
+                $"Akka MaximumFrameSizeBytes must be at least {requiredFrameSize} bytes for the configured CrowCast message limits.");
+        }
+
+        var socketBufferSize = Math.Max(256_000, options.MaximumFrameSizeBytes);
         var publicHostName = string.IsNullOrWhiteSpace(options.PublicHostName)
             ? string.Empty
             : $"public-hostname = \"{Escape(options.PublicHostName)}\"";
@@ -37,6 +45,9 @@ internal static class AkkaCrowCastConfiguration
               stdout-loglevel = WARNING
               actor {
                 provider = cluster
+                serialization-settings {
+                  allow-unregistered-types = false
+                }
                 serializers {
                   crowcast = "CrowCast.Akka.Serialization.CrowCastAkkaSerializer, CrowCast.Akka"
                 }
@@ -48,6 +59,9 @@ internal static class AkkaCrowCastConfiguration
               remote.dot-netty.tcp {
                 hostname = "{{Escape(options.HostName)}}"
                 port = {{options.Port}}
+                maximum-frame-size = {{options.MaximumFrameSizeBytes}}b
+                send-buffer-size = {{socketBufferSize}}b
+                receive-buffer-size = {{socketBufferSize}}b
                 {{publicHostName}}
                 {{publicPort}}
               }
@@ -84,6 +98,17 @@ internal static class AkkaCrowCastConfiguration
 
     private static string FormatDuration(TimeSpan value) =>
         $"{Math.Max(1, Math.Ceiling(value.TotalMilliseconds)):0}ms";
+
+    private static int EstimateMaximumMessageFrameSize(CrowCastProtocolLimits limits)
+    {
+        var encodedContentBytes = checked(((long)limits.MaximumMessageContentBytes + 2) / 3 * 4);
+        var encodedTypeBytes = checked((long)limits.MaximumMessageTypeBytes * 6);
+        var encodedMetadataBytes = checked(
+            (long)limits.MaximumMetadataEntries *
+            ((limits.MaximumMetadataKeyBytes + (long)limits.MaximumMetadataValueBytes) * 6 + 16));
+        var estimate = checked(encodedContentBytes + encodedTypeBytes + encodedMetadataBytes + 8 * 1024);
+        return estimate > int.MaxValue ? int.MaxValue : (int)estimate;
+    }
 
     private static string Escape(string value) =>
         value.Replace("\\", "\\\\", StringComparison.Ordinal)

@@ -5,4 +5,5 @@ public sealed record CrowCastBackendSettings(
     TimeSpan ExchangeInterval,
     TimeSpan SuspectAfter,
     TimeSpan DeadAfter,
-    IReadOnlyDictionary<string, string> Metadata);
+    IReadOnlyDictionary<string, string> Metadata,
+    CrowCastProtocolLimits Limits);

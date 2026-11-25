@@ -11,4 +11,8 @@ All notable changes to CrowCast will be documented in this file.
 - Added the Akka.NET Cluster and Distributed PubSub backend.
 - Added unit and real two-replica integration tests.
 - Added a runnable multi-replica sample and architecture documentation.
-- Deferred transport and membership security to phase 2.
+- Added configurable payload, metadata, clock-skew, frame-size, and receive-rate limits.
+- Added rejection metrics and sampled logs for invalid messages and membership updates.
+- Hardened Akka with strict registered-type serialization and unknown-field rejection.
+- Added an optional same-workload Kubernetes `NetworkPolicy` template.
+- Kept transport authentication and encryption outside the core library and deployment-specific.

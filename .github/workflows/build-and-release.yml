@@ -15,6 +15,7 @@ on:
       - 'LICENSE'
       - 'README.md'
       - 'docs/**'
+      - 'deploy/**'
       - '*.sln'
       - 'Directory.Build.props'
   push:
@@ -30,6 +31,7 @@ on:
       - 'LICENSE'
       - 'README.md'
       - 'docs/**'
+      - 'deploy/**'
       - '*.sln'
       - 'Directory.Build.props'
 

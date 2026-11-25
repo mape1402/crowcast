@@ -32,5 +32,6 @@
   <ItemGroup>
     <None Include="../../README.md" Pack="true" Visible="false" PackagePath="" />
     <None Include="../../docs/architecture.md" Pack="true" Visible="false" PackagePath="docs/" />
+    <None Include="../../deploy/kubernetes/network-policy.yaml" Pack="true" Visible="false" PackagePath="deploy/kubernetes/" />
   </ItemGroup>
 </Project>

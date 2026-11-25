@@ -14,5 +14,7 @@ public sealed class AkkaCrowCastOptions
 
     public TimeSpan ShutdownTimeout { get; set; } = TimeSpan.FromSeconds(15);
 
+    public int MaximumFrameSizeBytes { get; set; } = 256 * 1024;
+
     public string? AdditionalConfiguration { get; set; }
 }

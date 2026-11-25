@@ -32,6 +32,9 @@ var crowCast = services.AddCrowCast(options =>
     options.DeadAfter = TimeSpan.FromSeconds(30);
     options.DeduplicationWindow = TimeSpan.FromMinutes(5);
     options.MessageTimeToLive = TimeSpan.FromMinutes(5);
+    options.MaximumMessageContentBytes = 64 * 1024;
+    options.MaximumReceivedMessagesPerInterval = 10_000;
+    options.ReceivedMessageRateLimitInterval = TimeSpan.FromSeconds(1);
 });
 
 crowCast.UseAkka(options =>
@@ -81,6 +84,14 @@ This is a coordination hint, not a distributed lock or a strong-consensus leader
 
 `ICrowCastDiagnostics.GetSnapshot()` returns membership counts and message, duplicate, expiration, membership-change, and coordinator-change counters. CrowCast also publishes the same operational signals through the `Elysium.CrowCast` `System.Diagnostics.Metrics` meter and uses `Microsoft.Extensions.Logging`.
 
+Rejected messages, rate-limited messages, and rejected membership updates are reported separately. Rejection logs are sampled after the first occurrence so hostile input cannot create an unbounded logging workload.
+
+## Input protection
+
+CrowCast validates both locally published and remotely received data. The defaults limit application payloads to 64 KiB, metadata to 32 entries, future timestamps to 30 seconds of clock skew, and inbound delivery to 10,000 messages per second per replica. These values are configurable through `CrowCastOptions`.
+
+The Akka backend uses only the dedicated CrowCast serializer for its wire contracts, disables fallback serialization for unregistered types, rejects unknown JSON fields, and caps remote frames at 256 KiB. Increase `MaximumFrameSizeBytes` deliberately if application limits are raised; gossip is intended for compact notifications rather than bulk data transfer.
+
 ## Example
 
 Run two local replicas in separate terminals:
@@ -94,7 +105,11 @@ Both replicas generate their identities at runtime, discover each other, exchang
 
 ## Security status
 
-Transport authentication, authorization, encryption, key rotation, and protection against hostile cluster members are deliberately deferred to phase 2. The current release must be used only on a trusted network boundary. `AdditionalConfiguration` can pass advanced Akka settings, but it is not a supported security contract yet.
+CrowCast does not require Kubernetes or manage certificates. Transport authentication, authorization, and encryption remain the responsibility of the deployment environment and are deliberately deferred from the core library. Input limits, strict serialization, bounded deduplication, clock-skew rejection, and rate limiting reduce accidental or hostile resource consumption, but they do not authenticate a replica.
+
+Keep the Akka port inside a trusted network boundary. For Kubernetes, start with the optional [`NetworkPolicy`](deploy/kubernetes/network-policy.yaml): replace the application label and port so only replicas of the same workload in the namespace can reach CrowCast. Selecting a pod with an ingress policy isolates all its ingress, so add separate allow policies for the application's HTTP, metrics, and health-check traffic. Network policies are additive; another policy that permits broad ingress can also reopen the CrowCast port. If the platform already supplies workload mTLS through a service mesh or CNI, CrowCast can use that transport without owning certificates.
+
+`AdditionalConfiguration` can override advanced Akka settings and should therefore be controlled as security-sensitive application configuration.
 
 See [architecture](docs/architecture.md) for protocol boundaries, extension points, and delivery semantics.
 

@@ -73,7 +73,8 @@ internal sealed class AkkaCrowCastBackend : ICrowCastBackend
                     context,
                     ready,
                     _loggerFactory.CreateLogger<CrowCastClusterActor>(),
-                    _timeProvider.GetUtcNow())),
+                    _timeProvider.GetUtcNow(),
+                    _timeProvider)),
                 "crowcast");
             _clusterActor = actor;
 

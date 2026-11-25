@@ -14,6 +14,7 @@ The public contract stays independent of Akka, Kubernetes, databases, brokers, a
 - `ICrowCast`, `ICrowCastBackend`, and `ICrowCastNodeDiscovery`;
 - lifecycle integration with `IHostedService`;
 - bounded in-memory deduplication and message expiration;
+- configurable payload, metadata, clock-skew, and receive-rate limits;
 - event-handler dispatch;
 - deterministic coordinator calculation;
 - metrics, logging, and diagnostic snapshots.
@@ -46,7 +47,8 @@ Akka's phi-accrual failure detector tolerates variable network latency. The spli
 2. The core attaches the local identity as origin when none is supplied.
 3. The backend publishes the versioned envelope to the cluster topic.
 4. Each receiving core rejects expired messages and suppresses an ID already present in its bounded in-memory deduplication window.
-5. Accepted messages are delivered to every registered event handler.
+5. Malformed, oversized, future-dated, or rate-limited input is rejected before application dispatch.
+6. Accepted messages are delivered to every registered event handler.
 
 Distributed PubSub is eventually consistent and is not durable. Messages published while no subscriber is reachable can be lost. Delivery order can differ between nodes, and a message can reappear after deduplication state expires or a process restarts.
 
@@ -65,11 +67,15 @@ The `Elysium.CrowCast` meter exposes:
 - `crowcast.messages.received`;
 - `crowcast.messages.duplicates`;
 - `crowcast.messages.expired`;
+- `crowcast.messages.rejected`, tagged by rejection reason;
+- `crowcast.membership.rejected`, tagged by rejection reason;
 - `crowcast.membership.changes`;
 - `crowcast.coordinator.changes`.
 
 No telemetry exporter is required or selected by CrowCast.
 
-## Planned phase 2: security
+## Security boundary
 
-Phase 2 will define a supported security contract covering authenticated membership, transport encryption, authorization, credential and certificate rotation, replay protections, serializer hardening, and deployment guidance for untrusted networks. Until then, CrowCast assumes a trusted network boundary.
+The Akka adapter registers a dedicated, versioned serializer for its three wire contracts and disables fallback serialization of unregistered types. Remote frames, message bodies, metadata, timestamps, deduplication state, and receive rate are bounded. These controls protect parser and process resources; they do not establish the identity or honesty of a replica.
+
+CrowCast remains independent of Kubernetes and certificate infrastructure. A deployment must restrict the gossip port to the intended replicas, for example with the provided namespace-scoped `NetworkPolicy`. Environments that require authenticated or encrypted pod-to-pod transport should provide it through their existing service mesh, CNI, or an optional future transport-security integration. CrowCast will not operate a certificate authority or place a shared CA private key in replicas.
