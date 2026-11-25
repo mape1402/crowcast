@@ -122,11 +122,4 @@ dotnet test CrowCast.sln --configuration Release
 dotnet pack CrowCast.sln --configuration Release --output nupkgs
 ```
 
-The repository enforces 100% line and branch coverage for `CrowCast` and `CrowCast.Akka`. Run the same gate locally with:
-
-```powershell
-dotnet test CrowCast.sln --configuration Release --collect:"XPlat Code Coverage" --settings coverlet.runsettings --results-directory TestResults/Coverage
-./eng/verify-coverage.ps1 -ResultsDirectory TestResults/Coverage
-```
-
 To release, add a non-empty `## [vX.Y.Z]` section to `CHANGELOG.md`, place the same tag in `.release`, and push to `main`. The repository must define `NUGET_USER` and a nuget.org Trusted Publishing policy.
