@@ -7,11 +7,14 @@ on:
       - main
     paths:
       - 'src/**'
+      - 'tests/**'
+      - 'samples/**'
       - '.github/workflows/**'
       - '.release'
       - 'CHANGELOG.md'
       - 'LICENSE'
       - 'README.md'
+      - 'docs/**'
       - '*.sln'
       - 'Directory.Build.props'
   push:
@@ -19,11 +22,14 @@ on:
       - main
     paths:
       - 'src/**'
+      - 'tests/**'
+      - 'samples/**'
       - '.github/workflows/**'
       - '.release'
       - 'CHANGELOG.md'
       - 'LICENSE'
       - 'README.md'
+      - 'docs/**'
       - '*.sln'
       - 'Directory.Build.props'
 
@@ -32,7 +38,6 @@ env:
   CONFIGURATION: Release
   DOTNET_TARGET: CrowCast.sln
   NUGET_OUTPUT: ./nupkgs
-  NUGET_PROJECT: src/CrowCast/CrowCast.csproj
   NUGET_SOURCE: https://api.nuget.org/v3/index.json
   NUGET_USER: ${{ vars.NUGET_USER }}
   RELEASE_BRANCH_PREFIX: releases/
@@ -69,15 +74,18 @@ jobs:
       - name: Build
         run: dotnet build "$DOTNET_TARGET" --no-restore --configuration "$CONFIGURATION"
 
-      - name: Validate NuGet package
+      - name: Test
+        run: dotnet test "$DOTNET_TARGET" --no-build --configuration "$CONFIGURATION" --verbosity normal
+
+      - name: Validate NuGet packages
         run: >
-          dotnet pack "$NUGET_PROJECT"
+          dotnet pack "$DOTNET_TARGET"
           --no-build
           --configuration "$CONFIGURATION"
           --output "$VALIDATION_NUGET_OUTPUT"
           /p:PackageVersion=0.1.0-ci.${{ github.run_number }}
 
-      - name: Upload validated NuGet package
+      - name: Upload validated NuGet packages
         uses: actions/upload-artifact@v4
         with:
           name: crowcast-nuget-${{ github.run_id }}
@@ -210,7 +218,7 @@ jobs:
       - name: Pack release
         if: steps.release.outputs.should_release == 'true'
         run: >
-          dotnet pack "$NUGET_PROJECT"
+          dotnet pack "$DOTNET_TARGET"
           --configuration "$CONFIGURATION"
           --output "$NUGET_OUTPUT"
           /p:Version=${{ steps.release.outputs.version }}

@@ -5,7 +5,15 @@
     <PackageId>CrowCast</PackageId>
     <Title>CrowCast</Title>
     <PackageType>Dependency</PackageType>
-    <Description>CrowCast library for .NET applications.</Description>
+    <Description>Application-neutral gossip membership, messaging, deduplication, coordination, and diagnostics abstractions for .NET services.</Description>
+    <PackageTags>$(PackageTags);gossip;cluster;membership;distributed-systems</PackageTags>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="8.0.2" />
+  </ItemGroup>
 
 </Project>

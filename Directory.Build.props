@@ -31,5 +31,6 @@
 
   <ItemGroup>
     <None Include="../../README.md" Pack="true" Visible="false" PackagePath="" />
+    <None Include="../../docs/architecture.md" Pack="true" Visible="false" PackagePath="docs/" />
   </ItemGroup>
 </Project>
