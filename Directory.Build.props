@@ -25,12 +25,15 @@
     <PackageProjectUrl>https://github.com/mape1402/crowcast</PackageProjectUrl>
     <PackageReleaseNotes>https://github.com/mape1402/crowcast/releases</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <PackageTags>crowcast;dotnet;library</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
     <None Include="../../README.md" Pack="true" Visible="false" PackagePath="" />
+    <None Include="../../assets/icon.png" Pack="true" Visible="false" PackagePath="" />
+    <None Include="../../assets/readme-hero.png" Pack="true" Visible="false" PackagePath="assets/" />
     <None Include="../../docs/architecture.md" Pack="true" Visible="false" PackagePath="docs/" />
     <None Include="../../deploy/kubernetes/network-policy.yaml" Pack="true" Visible="false" PackagePath="deploy/kubernetes/" />
     <None Include="../../deploy/kubernetes/headless-service.yaml" Pack="true" Visible="false" PackagePath="deploy/kubernetes/" />
