@@ -16,6 +16,8 @@ public sealed class CrowCastOptions
 
     public int MaximumDeduplicationEntries { get; set; } = 100_000;
 
+    public int MaximumRetainedTerminalMembers { get; set; } = 1_024;
+
     public int MaximumMessageContentBytes { get; set; } = 64 * 1024;
 
     public int MaximumMessageTypeBytes { get; set; } = 128;

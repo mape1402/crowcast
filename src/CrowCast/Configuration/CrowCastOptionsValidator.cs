@@ -52,6 +52,11 @@ internal sealed class CrowCastOptionsValidator : IValidateOptions<CrowCastOption
             failures.Add("MaximumDeduplicationEntries must be at least 1.");
         }
 
+        if (options.MaximumRetainedTerminalMembers is < 0 or > 1_000_000)
+        {
+            failures.Add("MaximumRetainedTerminalMembers must be between 0 and 1000000.");
+        }
+
         if (options.MaximumMessageContentBytes is < 1 or > 16 * 1024 * 1024)
         {
             failures.Add("MaximumMessageContentBytes must be between 1 byte and 16 MiB.");

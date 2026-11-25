@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 var hostName = ReadArgument("--host") ?? "127.0.0.1";
 var port = ReadIntArgument("--port", 4053);
 var seedHost = ReadArgument("--seed-host") ?? hostName;
+var seedService = ReadArgument("--seed-service");
 var seedPort = ReadIntArgument("--seed-port", 4053);
 var clusterName = ReadArgument("--cluster") ?? "crowcast-sample";
 
@@ -29,7 +30,14 @@ crowCast.UseAkka(options =>
     options.HostName = hostName;
     options.Port = port;
 });
-crowCast.UseStaticNodeDiscovery(new CrowCastEndpoint(seedHost, seedPort));
+if (string.IsNullOrWhiteSpace(seedService))
+{
+    crowCast.UseStaticNodeDiscovery(new CrowCastEndpoint(seedHost, seedPort));
+}
+else
+{
+    crowCast.UseDnsNodeDiscovery(seedService, seedPort);
+}
 crowCast.AddEventHandler<SampleEventHandler>();
 builder.Services.AddHostedService<SamplePublisher>();
 

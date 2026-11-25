@@ -221,7 +221,8 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
                 _options.MaximumMetadataKeyBytes,
                 _options.MaximumMetadataValueBytes,
                 _options.MaximumEndpointBytes,
-                _options.MaximumClockSkew));
+                _options.MaximumClockSkew),
+            _options.MaximumRetainedTerminalMembers);
     }
 
     private async ValueTask HandleNotificationAsync(
@@ -279,6 +280,13 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
         lock (_membershipGate)
         {
             _members.TryGetValue(incoming.Identity, out previous);
+            if (previous is not null &&
+                IsTerminal(previous.Status) &&
+                !IsTerminal(incoming.Status))
+            {
+                return;
+            }
+
             current = previous is null
                 ? incoming
                 : new CrowCastMember(
@@ -295,6 +303,7 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
             }
 
             _members[current.Identity] = current;
+            PruneTerminalMembers();
         }
 
         _telemetry.RecordMembershipChange(current.Status);
@@ -404,6 +413,28 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
         }
     }
 
+    private void PruneTerminalMembers()
+    {
+        var overflow = _members.Values.Count(member => IsTerminal(member.Status)) -
+            _options.MaximumRetainedTerminalMembers;
+        if (overflow <= 0)
+        {
+            return;
+        }
+
+        var identities = _members.Values
+            .Where(member => IsTerminal(member.Status))
+            .OrderBy(member => member.LastChangedAtUtc)
+            .ThenBy(member => member.Identity)
+            .Take(overflow)
+            .Select(member => member.Identity)
+            .ToArray();
+        foreach (var identity in identities)
+        {
+            _members.Remove(identity);
+        }
+    }
+
     private async ValueTask ReevaluateCoordinatorAsync(CancellationToken cancellationToken)
     {
         CrowCastNodeIdentity? previous;
@@ -476,4 +507,7 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
         string.Equals(left.Endpoint, right.Endpoint, StringComparison.Ordinal) &&
         left.Metadata.Count == right.Metadata.Count &&
         left.Metadata.All(pair => right.Metadata.TryGetValue(pair.Key, out var value) && value == pair.Value);
+
+    private static bool IsTerminal(CrowCastMemberStatus status) =>
+        status is CrowCastMemberStatus.Dead or CrowCastMemberStatus.Left;
 }
