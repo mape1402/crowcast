@@ -16,3 +16,4 @@ All notable changes to CrowCast will be documented in this file.
 - Hardened Akka with strict registered-type serialization and unknown-field rejection.
 - Added an optional same-workload Kubernetes `NetworkPolicy` template.
 - Kept transport authentication and encryption outside the core library and deployment-specific.
+- Added a mandatory CI gate for 100% line and branch coverage across both production packages.

@@ -37,7 +37,8 @@ internal sealed class CrowCastRuntimeHarness : IAsyncDisposable
     public ICrowCastDiagnostics Diagnostics { get; }
 
     public static async Task<CrowCastRuntimeHarness> StartAsync(
-        Action<CrowCast.Configuration.CrowCastOptions>? configure = null)
+        Action<CrowCast.Configuration.CrowCastOptions>? configure = null,
+        Action<IServiceCollection>? configureServices = null)
     {
         var services = new ServiceCollection();
         var backend = new FakeCrowCastBackend();
@@ -47,6 +48,7 @@ internal sealed class CrowCastRuntimeHarness : IAsyncDisposable
         services.AddSingleton<ICrowCastBackend>(backend);
         services.AddSingleton<ICrowCastEventHandler>(events);
         services.AddCrowCast(configure);
+        configureServices?.Invoke(services);
 
         var provider = services.BuildServiceProvider();
         var hostedService = provider.GetServices<IHostedService>().Single();

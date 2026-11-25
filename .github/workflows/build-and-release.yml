@@ -8,6 +8,7 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
+      - 'eng/**'
       - 'samples/**'
       - '.github/workflows/**'
       - '.release'
@@ -18,12 +19,14 @@ on:
       - 'deploy/**'
       - '*.sln'
       - 'Directory.Build.props'
+      - 'coverlet.runsettings'
   push:
     branches:
       - main
     paths:
       - 'src/**'
       - 'tests/**'
+      - 'eng/**'
       - 'samples/**'
       - '.github/workflows/**'
       - '.release'
@@ -34,6 +37,7 @@ on:
       - 'deploy/**'
       - '*.sln'
       - 'Directory.Build.props'
+      - 'coverlet.runsettings'
 
 env:
   CHANGELOG_PATH: CHANGELOG.md
@@ -76,8 +80,19 @@ jobs:
       - name: Build
         run: dotnet build "$DOTNET_TARGET" --no-restore --configuration "$CONFIGURATION"
 
-      - name: Test
-        run: dotnet test "$DOTNET_TARGET" --no-build --configuration "$CONFIGURATION" --verbosity normal
+      - name: Test with coverage
+        run: >
+          dotnet test "$DOTNET_TARGET"
+          --no-build
+          --configuration "$CONFIGURATION"
+          --verbosity normal
+          --collect:"XPlat Code Coverage"
+          --settings coverlet.runsettings
+          --results-directory ./artifacts/coverage
+
+      - name: Enforce 100% coverage
+        shell: pwsh
+        run: ./eng/verify-coverage.ps1 -ResultsDirectory ./artifacts/coverage
 
       - name: Validate NuGet packages
         run: >

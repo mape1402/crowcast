@@ -21,7 +21,7 @@ internal sealed class CrowCastClusterActor : ReceiveActor
     private readonly Dictionary<CrowCastNodeIdentity, CrowCastNodeAnnouncement> _announcements = [];
     private readonly Dictionary<string, CrowCastMemberStatus> _statusByEndpoint = new(StringComparer.Ordinal);
     private readonly Dictionary<CrowCastNodeIdentity, CrowCastMemberStatus> _statusByIdentity = [];
-    private ICancelable? _announcementSchedule;
+    private ICancelable _announcementSchedule = Cancelable.CreateCanceled();
     private long _rejectedWireInputCount;
 
     public CrowCastClusterActor(
@@ -85,7 +85,7 @@ internal sealed class CrowCastClusterActor : ReceiveActor
 
     protected override void PostStop()
     {
-        _announcementSchedule?.Cancel();
+        _announcementSchedule.Cancel();
         _mediator.Tell(new Unsubscribe(_topic, Self));
         _cluster.Unsubscribe(Self);
         base.PostStop();
@@ -185,12 +185,9 @@ internal sealed class CrowCastClusterActor : ReceiveActor
         _identitiesByEndpoint[announcement.Endpoint] = identity;
         _announcements[identity] = announcement;
 
-        var status = _statusByEndpoint.GetValueOrDefault(announcement.Endpoint, CrowCastMemberStatus.Alive);
-        if (previousIdentity != identity || status is not (CrowCastMemberStatus.Dead or CrowCastMemberStatus.Left))
-        {
-            status = CrowCastMemberStatus.Alive;
-            _statusByEndpoint[announcement.Endpoint] = status;
-        }
+        // Terminal identities returned above; a new generation at the same endpoint is alive.
+        const CrowCastMemberStatus status = CrowCastMemberStatus.Alive;
+        _statusByEndpoint[announcement.Endpoint] = status;
 
         _statusByIdentity[identity] = status;
 

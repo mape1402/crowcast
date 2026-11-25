@@ -88,6 +88,54 @@ public sealed class CrowCastServiceTests
     }
 
     [Fact]
+    public async Task Outbound_temporal_validation_distinguishes_future_and_expired_messages()
+    {
+        await using var runtime = await CrowCastRuntimeHarness.StartAsync(options =>
+        {
+            options.MaximumClockSkew = TimeSpan.FromSeconds(1);
+            options.MessageTimeToLive = TimeSpan.FromSeconds(5);
+            options.DeduplicationWindow = TimeSpan.FromSeconds(5);
+        });
+        var now = DateTimeOffset.UtcNow;
+        var future = new CrowCastMessage(
+            CrowCastMessageId.New(),
+            "future",
+            ReadOnlyMemory<byte>.Empty,
+            now + TimeSpan.FromMinutes(1));
+        var expired = new CrowCastMessage(
+            CrowCastMessageId.New(),
+            "expired",
+            ReadOnlyMemory<byte>.Empty,
+            now - TimeSpan.FromMinutes(1));
+
+        var futureException = await Assert.ThrowsAsync<ArgumentException>(async () =>
+            await runtime.CrowCast.PublishAsync(future));
+        var expiredException = await Assert.ThrowsAsync<ArgumentException>(async () =>
+            await runtime.CrowCast.PublishAsync(expired));
+
+        Assert.Contains("timestamp_too_far_in_future", futureException.Message);
+        Assert.Contains("expired", expiredException.Message);
+        Assert.Equal(2, runtime.Diagnostics.GetSnapshot().RejectedMessages);
+    }
+
+    [Fact]
+    public async Task Publish_preserves_an_explicit_contextual_origin()
+    {
+        await using var runtime = await CrowCastRuntimeHarness.StartAsync();
+        var origin = CrowCastNodeIdentity.New();
+        var message = new CrowCastMessage(
+            CrowCastMessageId.New(),
+            "explicit-origin",
+            ReadOnlyMemory<byte>.Empty,
+            DateTimeOffset.UtcNow,
+            origin: origin);
+
+        await runtime.CrowCast.PublishAsync(message);
+
+        Assert.Equal(origin, Assert.Single(runtime.Backend.PublishedMessages).Origin);
+    }
+
+    [Fact]
     public async Task Oversized_inbound_messages_are_rejected_without_dispatching_an_event()
     {
         await using var runtime = await CrowCastRuntimeHarness.StartAsync(options =>
@@ -153,6 +201,41 @@ public sealed class CrowCastServiceTests
         var remote = CrowCastNodeIdentity.New();
         var now = DateTimeOffset.UtcNow;
 
+        for (var index = 0; index < 100; index++)
+        {
+            await runtime.Backend.EmitAsync(new CrowCastBackendMemberChanged(
+                new CrowCastMember(
+                    remote,
+                    CrowCastMemberStatus.Alive,
+                    now,
+                    now,
+                    "akka.tcp://remote",
+                    new Dictionary<string, string> { ["unexpected"] = "value" })));
+        }
+
+        Assert.DoesNotContain(runtime.CrowCast.Members, member => member.Identity == remote);
+        Assert.Equal(100, runtime.Diagnostics.GetSnapshot().RejectedMembershipUpdates);
+    }
+
+    [Fact]
+    public async Task Equivalent_member_updates_are_suppressed_but_metadata_changes_are_emitted()
+    {
+        await using var runtime = await CrowCastRuntimeHarness.StartAsync();
+        var remote = CrowCastNodeIdentity.New();
+        var now = DateTimeOffset.UtcNow;
+        var original = new CrowCastMember(
+            remote,
+            CrowCastMemberStatus.Alive,
+            now,
+            now,
+            "akka.tcp://remote",
+            new Dictionary<string, string> { ["zone"] = "one" });
+
+        await runtime.Backend.EmitAsync(new CrowCastBackendMemberChanged(original));
+        var afterOriginal = runtime.Events.Events.OfType<CrowCastMemberChanged>().Count();
+        await runtime.Backend.EmitAsync(new CrowCastBackendMemberChanged(original));
+        Assert.Equal(afterOriginal, runtime.Events.Events.OfType<CrowCastMemberChanged>().Count());
+
         await runtime.Backend.EmitAsync(new CrowCastBackendMemberChanged(
             new CrowCastMember(
                 remote,
@@ -160,10 +243,30 @@ public sealed class CrowCastServiceTests
                 now,
                 now,
                 "akka.tcp://remote",
-                new Dictionary<string, string> { ["unexpected"] = "value" })));
+                new Dictionary<string, string> { ["zone"] = "two" })));
+        Assert.Equal(afterOriginal + 1, runtime.Events.Events.OfType<CrowCastMemberChanged>().Count());
 
-        Assert.DoesNotContain(runtime.CrowCast.Members, member => member.Identity == remote);
-        Assert.Equal(1, runtime.Diagnostics.GetSnapshot().RejectedMembershipUpdates);
+        await runtime.Backend.EmitAsync(new CrowCastBackendMemberChanged(
+            new CrowCastMember(
+                remote,
+                CrowCastMemberStatus.Alive,
+                now,
+                now,
+                "akka.tcp://remote",
+                new Dictionary<string, string> { ["region"] = "two" })));
+        Assert.Equal(afterOriginal + 2, runtime.Events.Events.OfType<CrowCastMemberChanged>().Count());
+    }
+
+    [Fact]
+    public async Task Coordinator_election_can_be_disabled()
+    {
+        await using var runtime = await CrowCastRuntimeHarness.StartAsync(options =>
+        {
+            options.EnableCoordinatorElection = false;
+        });
+
+        Assert.Null(runtime.CrowCast.Coordinator);
+        Assert.Empty(runtime.Events.Events.OfType<CrowCastCoordinatorChanged>());
     }
 
     [Fact]

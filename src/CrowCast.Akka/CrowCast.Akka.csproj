@@ -10,6 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="CrowCast.Tests" />
     <PackageReference Include="Akka.Cluster" Version="1.5.75" />
     <PackageReference Include="Akka.Cluster.Tools" Version="1.5.75" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
