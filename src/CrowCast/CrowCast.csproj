@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>CrowCast</PackageId>
+    <Title>CrowCast</Title>
+    <PackageType>Dependency</PackageType>
+    <Description>CrowCast library for .NET applications.</Description>
+  </PropertyGroup>
+
+</Project>

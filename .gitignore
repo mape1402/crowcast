@@ -1,0 +1,23 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Aa]rtifacts/
+[Nn]upkgs/
+[Tt]est[Rr]esults*/
+*.nupkg
+*.snupkg
+*.binlog
+
+# IDE and user files
+.vs/
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+
+# Operating system files
+.DS_Store
+Thumbs.db
