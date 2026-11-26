@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: crowcast-control-plane
+spec:
+  selector:
+    # Replace with the labels of the application hosting CrowCast.ControlPlane.
+    app.kubernetes.io/name: replace-me-control-plane
+  ports:
+    - name: dashboard
+      protocol: TCP
+      port: 80
+      targetPort: 5080
+      appProtocol: http
+    - name: observations
+      protocol: TCP
+      port: 5081
+      targetPort: 5081
+      appProtocol: kubernetes.io/h2c

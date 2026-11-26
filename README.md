@@ -44,8 +44,20 @@ dotnet add package CrowCast
 dotnet add package CrowCast.Akka
 ```
 
-- `CrowCast` contains the public API, membership and messaging models, discovery and backend abstractions, event dispatch, deduplication, coordination, metrics, and diagnostics. It has no Akka dependency.
-- `CrowCast.Akka` provides the Akka.NET Cluster and Distributed PubSub backend.
+- `CrowCast` — public API, membership, messaging, discovery, event dispatch, deduplication, coordination, metrics, and diagnostics.
+- `CrowCast.Akka` — Akka.NET Cluster and Distributed PubSub backend.
+- `CrowCast.Observability` — bounded local snapshots, activity events, and telemetry samples.
+- `CrowCast.WebUI` — optional embedded ZoOrce dashboard for one replica's local perspective.
+- `CrowCast.ControlPlane.Client` — non-blocking gRPC reporter for application replicas.
+- `CrowCast.ControlPlane` — gRPC ingestion and in-memory multi-cluster aggregation.
+- `CrowCast.ControlPlane.WebUI` — optional ZoOrce fleet dashboard.
+- `CrowCast.ControlPlane.Protocol` — generated, versioned protobuf contracts shared by client and server.
+
+`CrowCast.WebUI.Shell` is pulled transitively by both dashboards and contains the shared ZoOrce, AG Grid, Apache ECharts, and SignalR integration.
+
+The shared shell uses ZoOrce's `Teal` preset in light mode by default. The preset selector is intentionally not rendered and applications that need another preset must configure `ZoorceShellOptions` in code. Users can still switch between the Teal light and dark palettes from the top bar, and that color-mode preference is remembered by the browser.
+
+The core, Akka, observability, protocol, reporter, and headless control-plane packages target .NET 8, 9, and 10. The ZoOrce dashboard packages currently target .NET 10, matching the current Elysium web shell.
 
 Applications normally reference both packages while Akka is the selected backend. A different transport can implement `ICrowCastBackend` without changing consumer code.
 
@@ -420,6 +432,118 @@ CrowCast publishes metrics through the `Elysium.CrowCast` `System.Diagnostics.Me
 
 CrowCast uses `Microsoft.Extensions.Logging` but does not select a logging or metrics exporter.
 
+## Embedded Dashboard
+
+The embedded dashboard shows the current replica's local view. It is intentionally not presented as globally consistent cluster truth.
+
+Install the optional UI package:
+
+```bash
+dotnet add package CrowCast.WebUI
+```
+
+Register the bounded observation projection and UI in an ASP.NET Core application:
+
+```csharp
+using CrowCast.Observability.DependencyInjection;
+using CrowCast.WebUI;
+
+builder.Services.AddCrowCastObservability(options =>
+{
+    options.ServiceName = "orders-api";
+    options.EnvironmentName = builder.Environment.EnvironmentName;
+    options.Scope = "west";
+    options.SamplingInterval = TimeSpan.FromSeconds(5);
+    options.IncludedMetadataKeys.Add("service");
+});
+
+builder.Services.AddCrowCastWebUI(options =>
+{
+    options.RoutePrefix = "crowcast";
+});
+
+var app = builder.Build();
+app.UseStaticFiles();
+app.UseRouting();
+app.MapRazorPages();
+app.MapCrowCastWebUI();
+```
+
+Open `/crowcast` for overview, members, activity, telemetry, and topology. AG Grid renders operational tables, Apache ECharts renders trends and topology, and SignalR triggers live refreshes. This adds Razor Page and SignalR routes only; it does not add gossip operations to an OpenAPI document.
+
+Endpoints and arbitrary member metadata are excluded from observations by default. Enable `IncludeEndpoints` or add specific keys to `IncludedMetadataKeys` only when that data is appropriate for operators.
+
+## Control Plane
+
+The control plane combines independent reports from many replicas and clusters without entering the gossip data path. If it is unavailable, CrowCast membership and application messages continue normally; reporters reconnect in the background.
+
+### Report from each replica
+
+```bash
+dotnet add package CrowCast.ControlPlane.Client
+```
+
+```csharp
+using CrowCast.ControlPlane.Client.DependencyInjection;
+
+builder.Services.AddCrowCastControlPlaneClient(options =>
+{
+    options.Endpoint = new Uri("http://crowcast-control-plane:5081");
+    options.HeartbeatInterval = TimeSpan.FromSeconds(5);
+    options.SnapshotInterval = TimeSpan.FromSeconds(15);
+});
+```
+
+The client uses a versioned bidirectional gRPC stream over HTTP/2. It sends a hello, periodic full snapshots, incremental activity batches, and heartbeats. Observation buffers and the server store are bounded and in memory.
+
+### Host the control plane and fleet dashboard
+
+```bash
+dotnet add package CrowCast.ControlPlane.WebUI
+```
+
+```csharp
+using CrowCast.ControlPlane.DependencyInjection;
+using CrowCast.ControlPlane.WebUI;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.ListenAnyIP(5080, endpoint => endpoint.Protocols = HttpProtocols.Http1);
+    options.ListenAnyIP(5081, endpoint => endpoint.Protocols = HttpProtocols.Http2);
+});
+
+builder.Services.AddCrowCastControlPlaneWebUI(options =>
+{
+    options.RoutePrefix = "crowcast-control";
+});
+
+var app = builder.Build();
+app.UseStaticFiles();
+app.UseRouting();
+app.MapRazorPages();
+app.MapCrowCastControlPlane();
+```
+
+Open `/crowcast-control` for fleet health and `/crowcast-control/clusters` for the cluster inventory. Open a cluster dashboard from the explicit action in its inventory row. The cluster dashboard is available at `/crowcast-control/clusters/dashboard` and combines logical identity, health, member status, topology, current telemetry counters, observer freshness, observer agreement, and recent activity. It preserves each observer's perspective so membership or coordinator disagreement is visible instead of being silently flattened. The previous `/clusters/detail` route remains available for compatibility.
+
+The fleet overview summarizes every logical cluster reporting to that control-plane instance: cluster health, fresh versus known observers, and membership totals. A **member** is a node present in gossip membership. An **observer** is an application replica reporting its local membership view to the control plane; the two sets normally align, but can temporarily differ during restarts, delayed reports, or partitions. The cluster dashboard builds a deterministic consensus projection for its topology and member inventory while retaining the independent observer views in the agreement matrix.
+
+Control-plane message telemetry is an approximate live operational total. It sums the current cumulative counters of fresh observers, so values can include deliveries at multiple replicas and reset when a replica restarts. It is not a durable billing or audit counter.
+
+The default control-plane store is non-durable. It is meant for live operations and telemetry, not audit history or business coordination.
+
+### Control-plane options
+
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `ObserverStaleAfter` | `20 seconds` | Marks a report stale while retaining its last snapshot. |
+| `ObserverOfflineAfter` | `2 minutes` | Marks an observer offline. Must exceed the stale interval. |
+| `MaximumEventsPerCluster` | `10,000` | Bounds retained activity per logical cluster. |
+| `MaximumObserversPerCluster` | `10,000` | Bounds retained observer generations per cluster. |
+
+The Kubernetes [`control-plane Service`](deploy/kubernetes/control-plane-service.yaml) exposes a normal HTTP dashboard port and a dedicated h2c gRPC port. Keep the gRPC, dashboard, and SignalR endpoints behind the same trusted network boundary as the rest of this phase.
+
 ## Input Protection
 
 CrowCast validates locally published and remotely received data. The Akka backend:
@@ -469,6 +593,18 @@ dotnet run --project samples/CrowCast.Sample -- --port 4055 --seed-port 4053
 ```
 
 To exercise DNS discovery, pass `--seed-service <dns-name>` to every replica.
+
+Run the complete observability demonstration with ten application replicas and one control plane:
+
+```powershell
+./samples/run-cluster.ps1
+```
+
+It starts local dashboards on ports `5201` through `5210` and the fleet dashboard at `http://127.0.0.1:5080/crowcast-control`. Use `-ReplicaCount` to choose another size. Stop every process when finished:
+
+```powershell
+./samples/stop-cluster.ps1
+```
 
 ## Build From Source
 

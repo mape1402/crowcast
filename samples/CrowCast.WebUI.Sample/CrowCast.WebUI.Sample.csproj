@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CrowCast.Akka\CrowCast.Akka.csproj" />
+    <ProjectReference Include="..\..\src\CrowCast.ControlPlane.Client\CrowCast.ControlPlane.Client.csproj" />
+    <ProjectReference Include="..\..\src\CrowCast.WebUI\CrowCast.WebUI.csproj" />
+  </ItemGroup>
+</Project>

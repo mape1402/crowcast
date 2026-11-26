@@ -1,0 +1,23 @@
+@page
+@using System.Text.Json
+@model IndexModel
+@{
+    ViewData["Title"] = "Cluster overview";
+    var snapshot = Model.Snapshot;
+}
+<section class="crowcast-page">
+    <header class="crowcast-heading"><div><h1>Cluster overview</h1><p>@snapshot.Cluster · perspective from @snapshot.Observer.NodeId</p></div><span class="crowcast-live" data-crowcast-live data-state="connecting">Connecting</span></header>
+    <div class="crowcast-metrics">
+        <article class="crowcast-metric"><span>Alive</span><strong>@snapshot.Members.Count(x => x.Status == "Alive")</strong></article>
+        <article class="crowcast-metric"><span>Suspect</span><strong>@snapshot.Members.Count(x => x.Status == "Suspect")</strong></article>
+        <article class="crowcast-metric"><span>Dead</span><strong>@snapshot.Members.Count(x => x.Status == "Dead")</strong></article>
+        <article class="crowcast-metric"><span>Coordinator</span><strong>@(snapshot.Coordinator?.NodeId[..Math.Min(8, snapshot.Coordinator.NodeId.Length)] ?? "—")</strong></article>
+        <article class="crowcast-metric"><span>Received</span><strong>@snapshot.Counters.MessagesReceived</strong></article>
+        <article class="crowcast-metric"><span>Duplicates</span><strong>@snapshot.Counters.DuplicateMessages</strong></article>
+    </div>
+    <div class="crowcast-panels">
+        <article class="crowcast-panel"><h2>Membership history</h2><p class="crowcast-panel-caption">Status counts observed by this replica.</p><div class="crowcast-chart" data-crowcast-chart="membership" data-source="@Url.Page(null, "Data")"></div></article>
+        <article class="crowcast-panel"><h2>Current topology</h2><p class="crowcast-panel-caption">Local, coordinator and member status.</p><div class="crowcast-chart" data-crowcast-chart="topology" data-source="@Url.Page(null, "Data")"></div></article>
+    </div>
+</section>
+@section CrowCastScripts { <script>window.CrowCastRealtime={hubPath:@Html.Raw(JsonSerializer.Serialize(Model.LiveHubPath)),mode:'local'};</script> }

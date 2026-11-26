@@ -1,0 +1,22 @@
+@page
+@using System.Text.Json
+@model IndexModel
+@{ ViewData["Title"] = "Fleet overview"; }
+<section class="crowcast-page">
+    <div class="crowcast-metrics">
+        <article class="crowcast-metric"><span>Clusters</span><strong>@Model.ClusterCount</strong></article>
+        <article class="crowcast-metric"><span>Healthy</span><strong>@Model.HealthyCount</strong></article>
+        <article class="crowcast-metric"><span>Need attention</span><strong>@Model.AttentionCount</strong></article>
+        <article class="crowcast-metric"><span>Fresh observers</span><strong>@Model.FreshObserverCount / @Model.ObserverCount</strong></article>
+        <article class="crowcast-metric"><span>Alive members</span><strong>@Model.AliveMemberCount</strong></article>
+        <article class="crowcast-metric"><span>Suspect / unavailable</span><strong>@Model.SuspectMemberCount / @Model.UnavailableMemberCount</strong></article>
+    </div>
+    <div class="crowcast-panels">
+        <article class="crowcast-panel"><h2>Cluster health</h2><p class="crowcast-panel-caption">Distribution of current health classifications across the fleet.</p><div class="crowcast-chart" data-crowcast-chart="health" data-source="@Url.Page(null, "Clusters")"></div></article>
+        <article class="crowcast-panel"><h2>Members by cluster</h2><p class="crowcast-panel-caption">Alive, suspect, dead and orderly-left membership reported for each logical cluster.</p><div class="crowcast-chart" data-crowcast-chart="fleet-members" data-source="@Url.Page(null, "Clusters")"></div></article>
+        <article class="crowcast-panel crowcast-panel-wide" data-crowcast-grid="fleetClusters" data-source="@Url.Page(null, "Clusters")"><h2>Cluster inventory</h2><p class="crowcast-panel-caption">Health, observation freshness and membership totals. Open a cluster to investigate its independent observer views.</p><div class="crowcast-grid-toolbar"><input type="search" data-crowcast-grid-search placeholder="Search clusters…" aria-label="Search clusters" /><span data-crowcast-grid-state></span></div><div class="crowcast-grid crowcast-grid-compact" data-crowcast-grid-host></div></article>
+    </div>
+</section>
+@section CrowCastScripts {
+    <script>window.CrowCastRealtime={hubPath:@Html.Raw(JsonSerializer.Serialize(Model.LiveHubPath)),mode:'fleet'};</script>
+}

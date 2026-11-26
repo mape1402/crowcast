@@ -16,3 +16,8 @@ All notable changes to CrowCast will be documented in this file.
 - Hardened Akka with strict registered-type serialization and unknown-field rejection.
 - Added an optional same-workload Kubernetes `NetworkPolicy` template.
 - Kept transport authentication and encryption outside the core library and deployment-specific.
+- Added bounded, redacted observation snapshots, activity events, and time-series samples.
+- Added an optional embedded ZoOrce dashboard using AG Grid, Apache ECharts, and SignalR.
+- Added a versioned bidirectional gRPC protocol and non-blocking replica reporter.
+- Added an in-memory multi-cluster control plane with fleet health, observer agreement, and live updates.
+- Added a ZoOrce control-plane dashboard and configurable multi-cluster demonstration.

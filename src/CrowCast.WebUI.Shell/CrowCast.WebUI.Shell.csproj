@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
+    <PackageId>CrowCast.WebUI.Shell</PackageId>
+    <Title>CrowCast Web UI Shell</Title>
+    <Description>Shared ZoOrce shell and AG Grid/ECharts adapters for CrowCast web modules.</Description>
+    <PackageTags>$(PackageTags);zoorce;ag-grid;echarts;webui</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="CrowCast.Tests" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Zoorce.Web.UI" Version="1.4.0" />
+  </ItemGroup>
+</Project>

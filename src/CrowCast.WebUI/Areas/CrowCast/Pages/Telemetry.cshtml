@@ -1,0 +1,9 @@
+@page
+@using System.Text.Json
+@model TelemetryModel
+@{ ViewData["Title"] = "Telemetry"; }
+<section class="crowcast-page">
+    <header class="crowcast-heading"><div><h1>Telemetry</h1><p>Low-cardinality operational signals from the local process.</p></div><span class="crowcast-live" data-crowcast-live>Connecting</span></header>
+    <div class="crowcast-panels"><article class="crowcast-panel"><h2>Membership</h2><div class="crowcast-chart" data-crowcast-chart="membership" data-source="@Url.Page(null, "Data")"></div></article><article class="crowcast-panel"><h2>Message counters</h2><div class="crowcast-chart" data-crowcast-chart="messages" data-source="@Url.Page(null, "Data")"></div></article></div>
+</section>
+@section CrowCastScripts { <script>window.CrowCastRealtime={hubPath:@Html.Raw(JsonSerializer.Serialize(Model.LiveHubPath)),mode:'local'};</script> }

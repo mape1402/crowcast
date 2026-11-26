@@ -1,0 +1,13 @@
+@page
+@using System.Text.Json
+@model CrowCast.ControlPlane.WebUI.Areas.CrowCastControlPlane.Pages.Clusters.IndexModel
+@{ ViewData["Title"] = "Clusters"; }
+<section class="crowcast-page">
+    <article class="crowcast-panel crowcast-panel-wide" data-crowcast-grid="clusters" data-source="@Url.Page(null, "List")">
+        <div class="crowcast-grid-toolbar"><input type="search" data-crowcast-grid-search placeholder="Search clusters…" aria-label="Search clusters" /><span data-crowcast-grid-state></span></div>
+        <div class="crowcast-grid" data-crowcast-grid-host></div>
+    </article>
+</section>
+@section CrowCastScripts {
+    <script>window.CrowCastRealtime={hubPath:@Html.Raw(JsonSerializer.Serialize(Model.LiveHubPath)),mode:'fleet'};</script>
+}

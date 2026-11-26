@@ -7,12 +7,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="coverlet.collector" Version="6.0.4">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
+    <PackageReference Include="Google.Protobuf" Version="3.31.1" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
@@ -20,6 +20,11 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <ProjectReference Include="..\..\src\CrowCast.Akka\CrowCast.Akka.csproj" />
+    <ProjectReference Include="..\..\src\CrowCast.ControlPlane.Client\CrowCast.ControlPlane.Client.csproj" />
+    <ProjectReference Include="..\..\src\CrowCast.ControlPlane\CrowCast.ControlPlane.csproj" />
+    <ProjectReference Include="..\..\src\CrowCast.ControlPlane.WebUI\CrowCast.ControlPlane.WebUI.csproj" />
+    <ProjectReference Include="..\..\src\CrowCast.Observability\CrowCast.Observability.csproj" />
+    <ProjectReference Include="..\..\src\CrowCast.WebUI\CrowCast.WebUI.csproj" />
     <ProjectReference Include="..\..\src\CrowCast\CrowCast.csproj" />
   </ItemGroup>
 

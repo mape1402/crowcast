@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
+    <PackageId>CrowCast.ControlPlane.WebUI</PackageId>
+    <Title>CrowCast Control Plane Web UI</Title>
+    <Description>ZoOrce fleet dashboard for multiple CrowCast clusters and observer perspectives.</Description>
+    <PackageTags>$(PackageTags);control-plane;dashboard;webui</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="CrowCast.Tests" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\CrowCast.ControlPlane\CrowCast.ControlPlane.csproj" />
+    <ProjectReference Include="..\CrowCast.WebUI.Shell\CrowCast.WebUI.Shell.csproj" />
+  </ItemGroup>
+</Project>
