@@ -64,35 +64,36 @@ Applications normally reference both packages while Akka is the selected backend
 
 ## Getting Started
 
-### 1. Create a typed event handler
+### 1. Create a typed message and handler
 
-CrowCast dispatches each event only to handlers registered for that exact event type:
+Application payloads are strongly typed. CrowCast serializes them automatically and delivers the deserialized value with its envelope context:
 
 ```csharp
-using System.Text;
-using CrowCast.Events;
+using CrowCast.Messaging;
 using Microsoft.Extensions.Logging;
+
+public sealed record PartitionChanged(string Partition, long Version);
 
 public sealed class ApplicationMessageHandler(
     ILogger<ApplicationMessageHandler> logger)
-    : ICrowCastEventHandler<CrowCastMessageReceived>
+    : ICrowCastMessageHandler<PartitionChanged>
 {
     public ValueTask HandleAsync(
-        CrowCastMessageReceived @event,
+        CrowCastMessageContext<PartitionChanged> context,
         CancellationToken cancellationToken)
     {
         logger.LogInformation(
-            "CrowCast message {Type} from {Origin}: {Content}",
-            @event.Message.Type,
-            @event.Message.Origin,
-            Encoding.UTF8.GetString(@event.Message.Content.Span));
+            "Partition {Partition} changed to version {Version} on {Origin}",
+            context.Message.Partition,
+            context.Message.Version,
+            context.Origin);
 
         return ValueTask.CompletedTask;
     }
 }
 ```
 
-Implement `ICrowCastEventHandler<CrowCastMemberChanged>` or `ICrowCastEventHandler<CrowCastCoordinatorChanged>` in separate handlers when the application needs those notifications. No catch-all handler or event-type `switch` is required. Handlers decide what an event means to the application; CrowCast never executes business work on their behalf.
+Implement `ICrowCastEventHandler<CrowCastMemberChanged>` or `ICrowCastEventHandler<CrowCastCoordinatorChanged>` separately when the application needs cluster lifecycle notifications. No catch-all handler, payload cast, or event-type `switch` is required. Handlers decide what a message means to the application; CrowCast never executes business work on their behalf.
 
 ### 2. Register a local cluster
 
@@ -126,21 +127,20 @@ crowCast.UseAkka(options =>
 crowCast.UseStaticNodeDiscovery(
     new CrowCastEndpoint("127.0.0.1", 4053));
 
-crowCast.AddEventHandler<ApplicationMessageHandler>();
+crowCast.AddMessageHandler<PartitionChanged, ApplicationMessageHandler>(
+    "partition.changed.v1");
 
 await builder.Build().RunAsync();
 ```
 
-`AddCrowCast` registers the hosted lifecycle automatically. Application startup completes after the local Akka member is `Up` and its pub/sub subscription is ready.
+`AddMessageHandler` binds a stable wire type to a .NET payload contract. The wire never contains an assembly-qualified CLR type. `AddCrowCast` registers the hosted lifecycle automatically, and application startup completes after the local Akka member is `Up` and its pub/sub subscription is ready.
 
 ### 3. Publish a message
 
-CrowCast messages contain a globally unique ID, an application-defined type, opaque bytes, optional metadata, and an optional origin:
+Publish the application object directly. CrowCast creates the unique envelope ID, resolves its registered wire type, serializes the payload, and attaches the local origin:
 
 ```csharp
-using System.Text.Json;
 using CrowCast;
-using CrowCast.Messaging;
 
 public sealed class PartitionPublisher(ICrowCast crowCast)
 {
@@ -148,15 +148,13 @@ public sealed class PartitionPublisher(ICrowCast crowCast)
         PartitionChanged payload,
         CancellationToken cancellationToken)
     {
-        var message = CrowCastMessage.Create(
-            "partition.changed.v1",
-            JsonSerializer.SerializeToUtf8Bytes(payload),
+        return crowCast.PublishToAllAsync(
+            payload,
             new Dictionary<string, string>
             {
                 ["schema"] = "v1"
-            });
-
-        return crowCast.PublishToAllAsync(message, cancellationToken);
+            },
+            cancellationToken);
     }
 }
 ```
@@ -165,19 +163,20 @@ Choose the destination explicitly for directed delivery:
 
 ```csharp
 var member = crowCast.Members.First(item => item.Status == CrowCastMemberStatus.Alive);
-var content = JsonSerializer.SerializeToUtf8Bytes(payload);
 
 await crowCast.PublishToMemberAsync(
-    CrowCastMessage.Create("partition.recalculate.v1", content),
+    payload,
     member.Identity,
     cancellationToken);
 
 await crowCast.PublishToCoordinatorAsync(
-    CrowCastMessage.Create("partition.coordinate.v1", content),
+    payload,
     cancellationToken);
 ```
 
 `PublishToAllAsync` sends to all current subscribers, including the publishing replica. `PublishToMemberAsync` addresses one exact `(NodeId, Generation)` execution identity. `PublishToCoordinatorAsync` resolves the coordinator from the publisher's current membership view and throws `InvalidOperationException` when no active coordinator exists. `PublishAsync` remains a compatibility alias for `PublishToAllAsync`.
+
+System.Text.Json with web defaults is the built-in serializer. Replace it without changing handlers or transports by implementing `ICrowCastMessageSerializer` and calling `crowCast.UseMessageSerializer<TSerializer>()`. The raw `CrowCastMessage` byte API remains available for advanced interoperability scenarios.
 
 When `Origin` is absent, CrowCast attaches the local runtime identity before publishing. The origin is contextual information only; it does not grant ownership or authority over the message or related work.
 
@@ -245,7 +244,9 @@ CrowCast is intended for compact notifications, not bulk payload transfer.
 
 - IDs are generated by `CrowCastMessageId.New()` through `CrowCastMessage.Create(...)`.
 - Types are application-owned strings. Version them when payload shape changes.
-- Content is opaque `ReadOnlyMemory<byte>`.
+- Registered application payloads are serialized and deserialized automatically; System.Text.Json is the default.
+- Stable wire type names are explicitly registered and are independent from CLR and assembly names.
+- The lower-level content representation remains opaque `ReadOnlyMemory<byte>` for custom serializers and interoperability.
 - Metadata is a small string dictionary for schema, tracing, or routing context.
 - Broadcast delivery uses the shared cluster topic; member delivery addresses one exact runtime generation.
 - Coordinator delivery resolves the coordinator in the publisher's current local view and then uses member delivery.

@@ -127,9 +127,17 @@ public sealed class ObservationSourceTests
         public IReadOnlyCollection<CrowCastMember> Members => members;
         public CrowCastNodeIdentity? Coordinator => coordinator;
         public ValueTask PublishAsync(CrowCastMessage message, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask PublishAsync<TMessage>(TMessage message, CancellationToken cancellationToken = default) where TMessage : notnull => ValueTask.CompletedTask;
+        public ValueTask PublishAsync<TMessage>(TMessage message, IReadOnlyDictionary<string, string>? metadata, CancellationToken cancellationToken = default) where TMessage : notnull => ValueTask.CompletedTask;
         public ValueTask PublishToAllAsync(CrowCastMessage message, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask PublishToAllAsync<TMessage>(TMessage message, CancellationToken cancellationToken = default) where TMessage : notnull => ValueTask.CompletedTask;
+        public ValueTask PublishToAllAsync<TMessage>(TMessage message, IReadOnlyDictionary<string, string>? metadata, CancellationToken cancellationToken = default) where TMessage : notnull => ValueTask.CompletedTask;
         public ValueTask PublishToMemberAsync(CrowCastMessage message, CrowCastNodeIdentity member, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask PublishToMemberAsync<TMessage>(TMessage message, CrowCastNodeIdentity member, CancellationToken cancellationToken = default) where TMessage : notnull => ValueTask.CompletedTask;
+        public ValueTask PublishToMemberAsync<TMessage>(TMessage message, CrowCastNodeIdentity member, IReadOnlyDictionary<string, string>? metadata, CancellationToken cancellationToken = default) where TMessage : notnull => ValueTask.CompletedTask;
         public ValueTask PublishToCoordinatorAsync(CrowCastMessage message, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask PublishToCoordinatorAsync<TMessage>(TMessage message, CancellationToken cancellationToken = default) where TMessage : notnull => ValueTask.CompletedTask;
+        public ValueTask PublishToCoordinatorAsync<TMessage>(TMessage message, IReadOnlyDictionary<string, string>? metadata, CancellationToken cancellationToken = default) where TMessage : notnull => ValueTask.CompletedTask;
     }
 
     private sealed class StubDiagnostics(CrowCastDiagnosticsSnapshot snapshot) : ICrowCastDiagnostics

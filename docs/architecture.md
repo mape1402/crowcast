@@ -57,13 +57,15 @@ Akka's phi-accrual failure detector tolerates variable network latency. The spli
 
 ## Message flow
 
-1. The consumer creates a globally unique message ID, type, opaque bytes, and optional metadata.
-2. The core attaches the local identity as origin when none is supplied.
+1. The consumer publishes a registered application payload. The core resolves its stable wire type, serializes it through `ICrowCastMessageSerializer`, and creates a globally unique envelope with optional metadata.
+2. The core validates the envelope and attaches the local identity as origin. Advanced consumers can still provide a raw byte envelope directly.
 3. The consumer selects all members, one exact execution identity, or the current advisory coordinator as the destination. The core resolves coordinator delivery to the identity visible in its current local view.
 4. The Akka backend publishes the unchanged versioned envelope to either the shared cluster topic or a private topic derived from the destination `(NodeId, Generation)` pair.
 5. Each receiving core rejects expired messages and suppresses an ID already present in its bounded in-memory deduplication window.
 6. Malformed, oversized, future-dated, or rate-limited input is rejected before application dispatch.
-7. Accepted messages are delivered only to `ICrowCastEventHandler<CrowCastMessageReceived>` implementations.
+7. Accepted messages are available to raw `ICrowCastEventHandler<CrowCastMessageReceived>` observers and are deserialized for registered `ICrowCastMessageHandler<TMessage>` implementations.
+
+System.Text.Json with web defaults is the built-in application payload serializer. Consumers can replace it without changing the core, backend, targeting, or handler contracts. Wire message types are stable explicit registrations; CrowCast does not transmit CLR type names or dynamically load application assemblies.
 
 Distributed PubSub is eventually consistent and is not durable. Messages published while no subscriber is reachable can be lost. Delivery order can differ between nodes, and a message can reappear after deduplication state expires or a process restarts. A member target identifies one execution generation, so a replacement pod does not inherit messages addressed to the previous process. A coordinator target is a snapshot of the publisher's local view, not a lease or routing guarantee across a partition.
 

@@ -39,8 +39,8 @@ else
     crowCast.UseDnsNodeDiscovery(seedService, seedPort);
 }
 crowCast.AddEventHandler<SampleMemberChangedHandler>();
-crowCast.AddEventHandler<SampleMessageReceivedHandler>();
 crowCast.AddEventHandler<SampleCoordinatorChangedHandler>();
+crowCast.AddMessageHandler<SampleHeartbeat, SampleMessageReceivedHandler>("sample.heartbeat.v1");
 builder.Services.AddHostedService<SamplePublisher>();
 
 await builder.Build().RunAsync();

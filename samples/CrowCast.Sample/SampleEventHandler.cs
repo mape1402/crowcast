@@ -1,5 +1,5 @@
-using System.Text;
 using CrowCast.Events;
+using CrowCast.Messaging;
 using Microsoft.Extensions.Logging;
 
 internal sealed class SampleMemberChangedHandler(ILogger<SampleMemberChangedHandler> logger) :
@@ -20,16 +20,18 @@ internal sealed class SampleMemberChangedHandler(ILogger<SampleMemberChangedHand
 }
 
 internal sealed class SampleMessageReceivedHandler(ILogger<SampleMessageReceivedHandler> logger) :
-    ICrowCastEventHandler<CrowCastMessageReceived>
+    ICrowCastMessageHandler<SampleHeartbeat>
 {
-    public ValueTask HandleAsync(CrowCastMessageReceived @event, CancellationToken cancellationToken)
+    public ValueTask HandleAsync(
+        CrowCastMessageContext<SampleHeartbeat> context,
+        CancellationToken cancellationToken)
     {
         logger.LogInformation(
             "Message {MessageId} type {MessageType} from {Origin}: {Content}",
-            @event.Message.Id,
-            @event.Message.Type,
-            @event.Message.Origin,
-            Encoding.UTF8.GetString(@event.Message.Content.Span));
+            context.Envelope.Id,
+            context.Envelope.Type,
+            context.Origin,
+            context.Message.Text);
 
         return ValueTask.CompletedTask;
     }
