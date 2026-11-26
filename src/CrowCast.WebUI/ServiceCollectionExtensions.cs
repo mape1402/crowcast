@@ -4,6 +4,7 @@ using CrowCast.WebUI.Realtime;
 using CrowCast.WebUI.Shell;
 using CrowCast.WebUI.Shell.Navigation;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -33,6 +34,14 @@ public static class ServiceCollectionExtensions
     {
         public void Configure(RazorPagesOptions value)
         {
+            if (options.Value.ExcludeFromOpenApi)
+            {
+                value.Conventions.AddAreaFolderApplicationModelConvention(
+                    "CrowCast",
+                    "/",
+                    model => model.EndpointMetadata.Add(new ExcludeFromDescriptionAttribute()));
+            }
+
             var prefix = Normalize(options.Value.RoutePrefix);
             if (prefix.Equals("CrowCast", StringComparison.OrdinalIgnoreCase)) return;
             value.Conventions.AddAreaPageRoute("CrowCast", "/Index", prefix);

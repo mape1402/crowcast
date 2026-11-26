@@ -1,3 +1,4 @@
+using System.Reflection;
 using CrowCast.ControlPlane.DependencyInjection;
 using CrowCast.ControlPlane.Storage;
 using CrowCast.ControlPlane.WebUI;
@@ -6,8 +7,9 @@ using CrowCast.WebUI;
 using CrowCast.WebUI.Navigation;
 using CrowCast.WebUI.Shell;
 using CrowCast.WebUI.Shell.Navigation;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc.ApplicationModels;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
@@ -37,6 +39,7 @@ public sealed class WebUiRegistrationTests
         Assert.NotEmpty(routes.Conventions);
         Assert.NotNull(provider.GetRequiredService<ICrowCastControlPlaneStore>());
         Assert.Equal("local", provider.GetRequiredService<IOptions<CrowCastWebUIOptions>>().Value.RoutePrefix);
+        Assert.True(provider.GetRequiredService<IOptions<CrowCastWebUIOptions>>().Value.ExcludeFromOpenApi);
         Assert.Equal("fleet", provider.GetRequiredService<IOptions<CrowCastControlPlaneWebUIOptions>>().Value.RoutePrefix);
         var shell = provider.GetRequiredService<IOptions<ZoorceShellOptions>>().Value;
         Assert.Equal(ZoorceThemePreset.Teal, shell.Themes.ActivePreset);
@@ -58,18 +61,50 @@ public sealed class WebUiRegistrationTests
         Assert.Equal(7, configuredProvider.GetRequiredService<IOptions<CrowCast.ControlPlane.Configuration.CrowCastControlPlaneOptions>>().Value.MaximumEventsPerCluster);
     }
 
-    [Fact]
-    public async Task Embedded_endpoint_mapping_adds_the_configured_live_hub()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Embedded_routes_respect_the_open_api_exclusion(bool excludeFromOpenApi)
     {
         Assert.Throws<ArgumentNullException>(() => CrowCastWebUIEndpointRouteBuilderExtensions.MapCrowCastWebUI(null!));
         var builder = WebApplication.CreateBuilder();
-        builder.Services.AddCrowCastWebUI(options => options.RoutePrefix = "/ops/local/");
+        builder.Services.AddCrowCastWebUI(options =>
+        {
+            options.RoutePrefix = "/ops/local/";
+            options.ExcludeFromOpenApi = excludeFromOpenApi;
+        });
         await using var app = builder.Build();
         app.MapCrowCastWebUI();
 
         var routes = (IEndpointRouteBuilder)app;
-        Assert.Contains(routes.DataSources.SelectMany(source => source.Endpoints), endpoint =>
-            endpoint.DisplayName?.Contains("/ops/local/live", StringComparison.Ordinal) == true);
+        var endpoints = routes.DataSources.SelectMany(source => source.Endpoints).ToArray();
+        var liveEndpoints = endpoints.Where(endpoint =>
+            endpoint.DisplayName?.Contains("/ops/local/live", StringComparison.Ordinal) == true).ToArray();
+        Assert.Equal(2, liveEndpoints.Length);
+        Assert.All(liveEndpoints, endpoint =>
+        {
+            var exclusion = endpoint.Metadata.GetMetadata<IExcludeFromDescriptionMetadata>();
+            Assert.Equal(excludeFromOpenApi, exclusion?.ExcludeFromDescription ?? false);
+        });
+
+        var descriptor = new PageActionDescriptor
+        {
+            AreaName = "CrowCast",
+            RelativePath = "/Areas/CrowCast/Pages/Index.cshtml",
+            ViewEnginePath = "/Index"
+        };
+        var pageModel = new PageApplicationModel(
+            descriptor,
+            typeof(WebUiRegistrationTests).GetTypeInfo(),
+            Array.Empty<object>());
+        var pageOptions = app.Services.GetRequiredService<IOptions<RazorPagesOptions>>().Value;
+        foreach (var convention in pageOptions.Conventions.OfType<IPageApplicationModelConvention>())
+        {
+            convention.Apply(pageModel);
+        }
+
+        var pageExclusion = pageModel.EndpointMetadata.OfType<IExcludeFromDescriptionMetadata>().LastOrDefault();
+        Assert.Equal(excludeFromOpenApi, pageExclusion?.ExcludeFromDescription ?? false);
     }
 
     [Fact]
