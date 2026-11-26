@@ -1,0 +1,12 @@
+@page
+@using System.Text.Json
+@model ActivityModel
+@{ ViewData["Title"] = "Activity"; }
+<section class="crowcast-page">
+    <header class="crowcast-heading"><div><h1>Activity</h1><p>Bounded, payload-free membership and message observations.</p></div><span class="crowcast-live" data-crowcast-live>Connecting</span></header>
+    <article class="crowcast-panel crowcast-panel-wide" data-crowcast-grid="events" data-source="@Url.Page(null, "List")">
+        <div class="crowcast-grid-toolbar"><input type="search" data-crowcast-grid-search placeholder="Search activity…" aria-label="Search activity" /><span data-crowcast-grid-state></span></div>
+        <div class="crowcast-grid" data-crowcast-grid-host></div>
+    </article>
+</section>
+@section CrowCastScripts { <script>window.CrowCastRealtime={hubPath:@Html.Raw(JsonSerializer.Serialize(Model.LiveHubPath)),mode:'local'};</script> }

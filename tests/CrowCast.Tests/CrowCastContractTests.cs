@@ -5,6 +5,7 @@ using CrowCast.DependencyInjection;
 using CrowCast.Events;
 using CrowCast.Membership;
 using CrowCast.Messaging;
+using CrowCast.Internal;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace CrowCast.Tests;
@@ -128,6 +129,17 @@ public sealed class CrowCastContractTests
 
         using var provider = services.BuildServiceProvider();
         Assert.Single(provider.GetServices<ICrowCastEventHandler>().OfType<NoOpEventHandler>());
+    }
+
+    [Fact]
+    public void Fixed_window_rate_limiter_resets_for_clock_rewind_and_elapsed_window()
+    {
+        var start = DateTimeOffset.UtcNow;
+        var limiter = new CrowCastFixedWindowRateLimiter(1, TimeSpan.FromSeconds(1), start);
+        Assert.True(limiter.TryAcquire(start));
+        Assert.False(limiter.TryAcquire(start));
+        Assert.True(limiter.TryAcquire(start.AddMilliseconds(-1)));
+        Assert.True(limiter.TryAcquire(start.AddSeconds(2)));
     }
 
     private sealed class NoOpEventHandler : ICrowCastEventHandler

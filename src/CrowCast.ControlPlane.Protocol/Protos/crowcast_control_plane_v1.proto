@@ -1,0 +1,127 @@
+syntax = "proto3";
+
+option csharp_namespace = "CrowCast.ControlPlane.Protocol.V1";
+package crowcast.controlplane.v1;
+
+service CrowCastObservationService {
+  rpc Observe(stream ObservationFrame) returns (stream ControlPlaneFrame);
+}
+
+message ClusterKey {
+  string environment = 1;
+  string service = 2;
+  string cluster = 3;
+  string scope = 4;
+}
+
+message ObserverIdentity {
+  string node_id = 1;
+  string generation = 2;
+}
+
+message Hello {
+  int32 schema_version = 1;
+  ClusterKey cluster = 2;
+  ObserverIdentity observer = 3;
+  string library_version = 4;
+}
+
+message MemberObservation {
+  ObserverIdentity identity = 1;
+  string status = 2;
+  int64 first_seen_unix_ms = 3;
+  int64 last_changed_unix_ms = 4;
+  string endpoint = 5;
+  map<string, string> metadata = 6;
+  bool is_coordinator = 7;
+  bool is_local = 8;
+}
+
+message TelemetryCounters {
+  int64 messages_published = 1;
+  int64 messages_received = 2;
+  int64 duplicate_messages = 3;
+  int64 expired_messages = 4;
+  int64 rejected_messages = 5;
+  int64 rate_limited_messages = 6;
+  int64 rejected_membership_updates = 7;
+  int64 membership_changes = 8;
+  int64 coordinator_changes = 9;
+}
+
+message Snapshot {
+  int32 schema_version = 1;
+  ClusterKey cluster = 2;
+  ObserverIdentity observer = 3;
+  int64 observation_sequence = 4;
+  int64 observed_unix_ms = 5;
+  ObserverIdentity coordinator = 6;
+  repeated MemberObservation members = 7;
+  TelemetryCounters counters = 8;
+}
+
+message ObservationEvent {
+  int64 sequence = 1;
+  int64 occurred_unix_ms = 2;
+  string category = 3;
+  string summary = 4;
+  ObserverIdentity subject = 5;
+  string previous_status = 6;
+  string current_status = 7;
+  string message_type = 8;
+}
+
+message EventBatch {
+  repeated ObservationEvent events = 1;
+}
+
+message Heartbeat {
+  int64 observed_unix_ms = 1;
+}
+
+message Goodbye {
+  int64 observed_unix_ms = 1;
+  string reason = 2;
+}
+
+message ObservationFrame {
+  int64 frame_sequence = 1;
+  oneof payload {
+    Hello hello = 10;
+    Snapshot snapshot = 11;
+    EventBatch events = 12;
+    Heartbeat heartbeat = 13;
+    Goodbye goodbye = 14;
+  }
+}
+
+message Accepted {
+  int32 schema_version = 1;
+  int64 server_unix_ms = 2;
+}
+
+message Acknowledgement {
+  int64 frame_sequence = 1;
+}
+
+message ResyncRequired {
+  string reason = 1;
+}
+
+message Rejected {
+  string reason = 1;
+}
+
+message Backpressure {
+  int32 minimum_delay_ms = 1;
+}
+
+message ControlPlaneFrame {
+  oneof payload {
+    Accepted accepted = 10;
+    Acknowledgement acknowledgement = 11;
+    ResyncRequired resync_required = 12;
+    Rejected rejected = 13;
+    Backpressure backpressure = 14;
+  }
+}

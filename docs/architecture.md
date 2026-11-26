@@ -28,6 +28,17 @@ The public contract stays independent of Akka, Kubernetes, databases, brokers, a
 - Distributed PubSub gossip dissemination;
 - versioned wire messages and a dedicated serializer.
 
+`CrowCast.Observability` owns:
+
+- a bounded, in-memory projection of the local replica's membership view;
+- redaction of endpoints and metadata unless explicitly included;
+- activity events and rolling metric samples for dashboards and reporters;
+- no transport, exporter, database, or UI dependency.
+
+`CrowCast.WebUI` and `CrowCast.WebUI.Shell` own the optional embedded dashboard. The shell uses the Elysium ZoOrce layout, AG Grid for operational tables, Apache ECharts for trends and topology, and SignalR only as an invalidation signal. Browser clients fetch fresh data from Razor Page handlers after an invalidation; the hub does not carry authoritative cluster state.
+
+`CrowCast.ControlPlane.Protocol` defines the versioned gRPC wire contract. `CrowCast.ControlPlane.Client` reports a replica's local view through one bidirectional HTTP/2 stream. `CrowCast.ControlPlane` ingests and aggregates those independent observer views, and `CrowCast.ControlPlane.WebUI` renders fleet, cluster, and observer-agreement views.
+
 A replacement backend implements `ICrowCastBackend`, receives an immutable `CrowCastBackendContext`, and emits backend notifications. Consumer applications remain attached to `ICrowCast` and `ICrowCastEventHandler`.
 
 ## Membership flow
@@ -77,8 +88,27 @@ The `Elysium.CrowCast` meter exposes:
 
 No telemetry exporter is required or selected by CrowCast.
 
+## Observation and control-plane flow
+
+1. Each replica independently creates a bounded observation snapshot from `ICrowCast` and `ICrowCastDiagnostics`.
+2. The optional embedded dashboard reads that local snapshot. It therefore states what one replica currently believes, not global truth.
+3. The optional control-plane client opens a bidirectional gRPC stream and sends `Hello`, full `Snapshot`, incremental `EventBatch`, and `Heartbeat` frames.
+4. The server acknowledges frames, tracks observer freshness, and can request a full resynchronization. A disconnected reporter retries with bounded exponential backoff and does not block gossip or application startup.
+5. The in-memory store keeps multiple observer perspectives for each logical `(environment, scope, service, cluster)` key. It derives health from report freshness, coordinator agreement, and membership agreement.
+6. The control-plane dashboard exposes the fleet projection, a cluster selector, and one operational dashboard per logical cluster. It creates a stable consensus membership projection from fresh observers for the member inventory and topology, sums their current counters for approximate message telemetry, and separately retains every observer view for the agreement matrix. Heartbeats update freshness without changing which observer is treated as the visual center of the cluster. Disagreement is preserved as diagnostic evidence rather than overwritten by a supposedly authoritative replica.
+
+The control plane is deliberately not on the gossip data path. Losing it affects dashboards and centralized telemetry only; membership and application messages continue between replicas. Its default store is bounded and non-durable. A future store can implement `ICrowCastControlPlaneStore` without changing the gRPC protocol or dashboards.
+
+### gRPC compatibility
+
+The protocol package uses a `v1` protobuf namespace and additive field evolution. The first frame must be a supported `Hello`; frame sequence numbers must increase monotonically. Snapshots carry their cluster and observer identity so the server can reject cross-stream mismatches. Delivery is at-least-once at the reporting layer: event sequence numbers are scoped to an observer, and the store deduplicates repeated observer/event pairs.
+
+Backpressure, rejection, and resynchronization are control frames rather than application commands. The reporter never allows control-plane traffic to execute application business logic.
+
 ## Security boundary
 
 The Akka adapter registers a dedicated, versioned serializer for its three wire contracts and disables fallback serialization of unregistered types. Remote frames, message bodies, metadata, timestamps, deduplication state, and receive rate are bounded. These controls protect parser and process resources; they do not establish the identity or honesty of a replica.
 
-CrowCast remains independent of Kubernetes and certificate infrastructure. A deployment must restrict the gossip port to the intended replicas, for example with the provided namespace-scoped `NetworkPolicy`. Environments that require authenticated or encrypted pod-to-pod transport should provide it through their existing service mesh, CNI, or an optional future transport-security integration. CrowCast will not operate a certificate authority or place a shared CA private key in replicas.
+CrowCast remains independent of Kubernetes and certificate infrastructure. A deployment must restrict the gossip port to the intended replicas, for example with the provided namespace-scoped `NetworkPolicy`. The embedded and control-plane dashboards, SignalR hubs, and gRPC observation endpoint are also unauthenticated in this phase and must stay behind the application's existing trusted ingress and network policies.
+
+Environments that require authenticated or encrypted pod-to-pod transport should provide it through their existing service mesh, CNI, or a future transport-security integration. CrowCast will not operate a certificate authority or place a shared CA private key in replicas.

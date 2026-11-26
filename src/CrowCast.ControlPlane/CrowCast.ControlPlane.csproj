@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>CrowCast.ControlPlane</PackageId>
+    <Title>CrowCast Control Plane</Title>
+    <Description>gRPC ingestion, aggregation, and live query services for CrowCast observations.</Description>
+    <PackageTags>$(PackageTags);grpc;control-plane;observability</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="CrowCast.Tests" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Grpc.AspNetCore" Version="2.83.0" />
+    <ProjectReference Include="..\CrowCast.ControlPlane.Protocol\CrowCast.ControlPlane.Protocol.csproj" />
+    <ProjectReference Include="..\CrowCast.Observability\CrowCast.Observability.csproj" />
+  </ItemGroup>
+</Project>

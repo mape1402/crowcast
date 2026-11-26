@@ -7,6 +7,7 @@
 *.nupkg
 *.snupkg
 *.binlog
+samples/.crowcast-sample-processes.json
 
 # IDE and user files
 .vs/

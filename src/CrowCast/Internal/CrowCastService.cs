@@ -22,6 +22,7 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
     private readonly Dictionary<CrowCastNodeIdentity, CrowCastMember> _members = [];
     private readonly object _membershipGate = new();
     private readonly ConcurrentDictionary<CrowCastMessageId, DateTimeOffset> _deduplication = new();
+    private readonly object _deduplicationGate = new();
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private readonly CrowCastTelemetry _telemetry;
     private readonly CrowCastFixedWindowRateLimiter _receiveRateLimiter;
@@ -357,38 +358,24 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
 
     private bool TryAcceptMessage(CrowCastMessageId messageId, DateTimeOffset now)
     {
-        var expiresAt = now + _options.DeduplicationWindow;
-        while (true)
+        lock (_deduplicationGate)
         {
-            if (_deduplication.TryGetValue(messageId, out var existing))
+            if (_deduplication.TryGetValue(messageId, out var existing) && existing > now)
             {
-                if (existing > now)
-                {
-                    return false;
-                }
-
-                if (_deduplication.TryUpdate(messageId, expiresAt, existing))
-                {
-                    break;
-                }
-
-                continue;
+                return false;
             }
 
-            if (_deduplication.TryAdd(messageId, expiresAt))
+            _deduplication[messageId] = now + _options.DeduplicationWindow;
+            _messagesSinceCleanup++;
+            if (_messagesSinceCleanup >= 256 ||
+                _deduplication.Count > _options.MaximumDeduplicationEntries)
             {
-                break;
+                _messagesSinceCleanup = 0;
+                PruneDeduplication(now);
             }
-        }
 
-        if (Interlocked.Increment(ref _messagesSinceCleanup) >= 256 ||
-            _deduplication.Count > _options.MaximumDeduplicationEntries)
-        {
-            Interlocked.Exchange(ref _messagesSinceCleanup, 0);
-            PruneDeduplication(now);
+            return true;
         }
-
-        return true;
     }
 
     private void PruneDeduplication(DateTimeOffset now)

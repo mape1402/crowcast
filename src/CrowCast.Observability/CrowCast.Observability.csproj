@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>CrowCast.Observability</PackageId>
+    <Title>CrowCast Observability</Title>
+    <Description>Bounded, application-neutral observation snapshots and events for CrowCast clusters.</Description>
+    <PackageTags>$(PackageTags);observability;diagnostics;telemetry</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="CrowCast.Tests" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="8.0.2" />
+    <ProjectReference Include="..\CrowCast\CrowCast.csproj" />
+  </ItemGroup>
+</Project>

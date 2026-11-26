@@ -1,0 +1,9 @@
+@page
+@using System.Text.Json
+@model TopologyModel
+@{ ViewData["Title"] = "Topology"; }
+<section class="crowcast-page">
+    <header class="crowcast-heading"><div><h1>Topology</h1><p>This is one replica's perspective, not a globally consistent truth.</p></div><span class="crowcast-live" data-crowcast-live>Connecting</span></header>
+    <article class="crowcast-panel crowcast-panel-wide"><div class="crowcast-chart" style="min-height:620px" data-crowcast-chart="topology" data-source="@Url.Page(null, "Data")"></div></article>
+</section>
+@section CrowCastScripts { <script>window.CrowCastRealtime={hubPath:@Html.Raw(JsonSerializer.Serialize(Model.LiveHubPath)),mode:'local'};</script> }

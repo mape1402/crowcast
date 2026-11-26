@@ -1,0 +1,17 @@
+@{
+    Layout = "_ZoorceLayout";
+    var crowCastAssetsAssembly = typeof(CrowCast.WebUI.Shell.ServiceCollectionExtensions).Assembly;
+    var crowCastAssetsVersion = $"{crowCastAssetsAssembly.GetName().Version}-{crowCastAssetsAssembly.ManifestModule.ModuleVersionId:N}";
+}
+<link rel="stylesheet" href="~/_content/CrowCast.WebUI.Shell/css/crowcast-shell.css?v=@crowCastAssetsVersion" />
+@RenderBody()
+
+@section Scripts {
+    <script src="https://cdn.jsdelivr.net/npm/@@microsoft/signalr@8.0.7/dist/browser/signalr.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@36.3.0/dist/ag-grid-community.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
+    @await RenderSectionAsync("CrowCastScripts", required: false)
+    <script src="~/_content/CrowCast.WebUI.Shell/js/crowcast-ag-grid.js?v=@crowCastAssetsVersion"></script>
+    <script src="~/_content/CrowCast.WebUI.Shell/js/crowcast-echarts.js?v=@crowCastAssetsVersion"></script>
+    <script src="~/_content/CrowCast.WebUI.Shell/js/crowcast-realtime.js?v=@crowCastAssetsVersion"></script>
+}

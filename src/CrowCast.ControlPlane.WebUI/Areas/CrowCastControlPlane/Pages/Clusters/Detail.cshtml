@@ -1,0 +1,34 @@
+@page
+@using System.Text.Json
+@model CrowCast.ControlPlane.WebUI.Areas.CrowCastControlPlane.Pages.Clusters.DetailModel
+@{
+    ViewData["Title"] = "Cluster dashboard";
+    var view = Model.ClusterView;
+    var query = new { environment = view.Key.Environment, service = view.Key.Service, cluster = view.Key.Cluster, scope = view.Key.Scope };
+    var location = string.IsNullOrWhiteSpace(view.Key.Scope) ? view.Key.Environment : $"{view.Key.Environment} · {view.Key.Scope}";
+    var coordinator = Model.Coordinator?.NodeId ?? "Not observed";
+    var coordinatorDisplay = coordinator.Length > 12 ? $"{coordinator[..12]}…" : coordinator;
+}
+<section class="crowcast-page">
+    <header class="crowcast-heading"><div><span class="crowcast-eyebrow">Cluster dashboard</span><h1>@view.Key.Service / @view.Key.Cluster</h1><p>@location · live membership, agreement, activity and telemetry.</p></div><span class="crowcast-live" data-crowcast-live>Connecting</span></header>
+    <div class="crowcast-metrics">
+        <article class="crowcast-metric"><span>Health</span><strong>@view.Health</strong></article>
+        <article class="crowcast-metric"><span>Fresh observers</span><strong>@view.FreshObservers / @view.Observers</strong></article>
+        <article class="crowcast-metric"><span>Alive</span><strong>@view.AliveMembers</strong></article>
+        <article class="crowcast-metric"><span>Suspect</span><strong>@view.SuspectMembers</strong></article>
+        <article class="crowcast-metric"><span>Unavailable</span><strong>@(view.DeadMembers + view.LeftMembers)</strong></article>
+        <article class="crowcast-metric"><span>Coordinator</span><strong class="crowcast-metric-value-small" title="@coordinator">@coordinatorDisplay</strong></article>
+    </div>
+    <div class="crowcast-panels">
+        <article class="crowcast-panel"><h2>Cluster identity</h2><p class="crowcast-panel-caption">Logical identity and freshness of the selected cluster.</p><dl class="crowcast-detail-list"><div><dt>Environment</dt><dd>@view.Key.Environment</dd></div><div><dt>Scope</dt><dd>@(string.IsNullOrWhiteSpace(view.Key.Scope) ? "Default" : view.Key.Scope)</dd></div><div><dt>Service</dt><dd>@view.Key.Service</dd></div><div><dt>Cluster</dt><dd>@view.Key.Cluster</dd></div><div><dt>Last report</dt><dd>@view.LastSeenAtUtc.ToString("u")</dd></div><div><dt>Membership</dt><dd>@(view.MembershipDisagreement ? "Observers disagree" : "Observers agree")</dd></div></dl></article>
+        <article class="crowcast-panel"><h2>Message telemetry</h2><p class="crowcast-panel-caption">Approximate cluster totals: current cumulative counters summed across fresh observers. They reset when replicas restart.</p><div class="crowcast-chart crowcast-chart-medium" data-crowcast-chart="counters" data-source="@Url.Page(null, "Data", query)"></div><p class="crowcast-chart-note"><strong>Published</strong> originates in applications; <strong>received</strong> counts deliveries to replicas; duplicate, rejected and rate-limited totals explain protocol protection.</p></article>
+        <article class="crowcast-panel"><h2>Aggregated topology</h2><p class="crowcast-panel-caption">Stable consensus projection built from all fresh observers. The coordinator anchors the topology.</p><div class="crowcast-chart" data-crowcast-chart="topology" data-source="@Url.Page(null, "Data", query)"></div></article>
+        <article class="crowcast-panel"><h2>Observer membership agreement</h2><p class="crowcast-panel-caption">Rows are reporting replicas; columns are members. Matching letters in a column mean the replicas agree on that member.</p><div class="crowcast-chart" data-crowcast-chart="agreement" data-source="@Url.Page(null, "Data", query)"></div><div class="crowcast-status-legend"><span><i data-status="alive"></i>A · Alive</span><span><i data-status="suspect"></i>S · Suspect</span><span><i data-status="dead"></i>D · Dead</span><span><i data-status="left"></i>L · Left</span></div></article>
+        <article class="crowcast-panel crowcast-panel-wide" data-crowcast-grid="clusterMembers" data-source="@Url.Page(null, "Members", query)"><h2>Members</h2><p class="crowcast-panel-caption"><strong>Members</strong> are nodes in the gossip membership. This table merges the fresh observer reports and shows how many observers see each node.</p><div class="crowcast-grid-toolbar"><input type="search" data-crowcast-grid-search placeholder="Search members…" aria-label="Search members" /><span data-crowcast-grid-state></span></div><div class="crowcast-grid crowcast-grid-compact" data-crowcast-grid-host></div></article>
+        <article class="crowcast-panel crowcast-panel-wide" data-crowcast-grid="observers" data-source="@Url.Page(null, "Observers", query)"><h2>Observers</h2><p class="crowcast-panel-caption"><strong>Observers</strong> are application replicas actively sending their local membership view to this control plane. A stale observer may remain visible even after it stops being an active member.</p><div class="crowcast-grid-toolbar"><input type="search" data-crowcast-grid-search placeholder="Search observers…" aria-label="Search observers" /><span data-crowcast-grid-state></span></div><div class="crowcast-grid crowcast-grid-compact" data-crowcast-grid-host></div></article>
+        <article class="crowcast-panel crowcast-panel-wide" data-crowcast-grid="events" data-source="@Url.Page(null, "Events", query)"><h2>Activity</h2><p class="crowcast-panel-caption">Recent membership, coordination and message observations.</p><div class="crowcast-grid-toolbar"><input type="search" data-crowcast-grid-search placeholder="Search events…" aria-label="Search events" /><span data-crowcast-grid-state></span></div><div class="crowcast-grid" data-crowcast-grid-host></div></article>
+    </div>
+</section>
+@section CrowCastScripts {
+    <script>window.CrowCastRealtime={hubPath:@Html.Raw(JsonSerializer.Serialize(Model.LiveHubPath)),mode:'cluster',clusterKey:@Html.Raw(JsonSerializer.Serialize(view.Key.ToString()))};</script>
+}

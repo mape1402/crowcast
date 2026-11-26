@@ -5,8 +5,10 @@
       <DataCollector friendlyName="XPlat code coverage">
         <Configuration>
           <Format>cobertura</Format>
-          <Include>[CrowCast]*,[CrowCast.Akka]*</Include>
+          <Include>[CrowCast*]*</Include>
+          <Exclude>[CrowCast.ControlPlane.Protocol]*</Exclude>
           <IncludeTestAssembly>false</IncludeTestAssembly>
+          <ExcludeByAttribute>CompilerGeneratedAttribute,GeneratedCodeAttribute</ExcludeByAttribute>
           <SkipAutoProps>true</SkipAutoProps>
           <DeterministicReport>true</DeterministicReport>
           <ExcludeAssembliesWithoutSources>MissingAll</ExcludeAssembliesWithoutSources>

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
+    <PackageId>CrowCast.WebUI</PackageId>
+    <Title>CrowCast Embedded Web UI</Title>
+    <Description>Optional ZoOrce dashboard for the local perspective of a CrowCast replica.</Description>
+    <PackageTags>$(PackageTags);dashboard;webui;signalr</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="CrowCast.Tests" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\CrowCast.Observability\CrowCast.Observability.csproj" />
+    <ProjectReference Include="..\CrowCast.WebUI.Shell\CrowCast.WebUI.Shell.csproj" />
+  </ItemGroup>
+</Project>
