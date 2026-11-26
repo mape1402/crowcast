@@ -4,6 +4,12 @@ All notable changes to CrowCast will be documented in this file.
 
 ## [Unreleased]
 
+## [v1.1.0] - 2026-11-25
+
+### Added
+
+- Added registered typed payloads, automatic System.Text.Json serialization, typed message handlers, and a replaceable serializer abstraction.
+
 ## [v1.0.0] - 2026-11-25
 
 ### Added
@@ -27,4 +33,3 @@ All notable changes to CrowCast will be documented in this file.
 - Added a ZoOrce control-plane dashboard and configurable multi-cluster demonstration.
 - Added strongly typed event handlers and removed the need for consumer-side event switches.
 - Added explicit delivery to all members, one execution identity, or the current advisory coordinator.
-- Added registered typed payloads, automatic System.Text.Json serialization, typed message handlers, and a replaceable serializer abstraction.
