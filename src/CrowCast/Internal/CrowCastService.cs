@@ -19,6 +19,7 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
     private readonly IReadOnlyCollection<ICrowCastEventHandler<CrowCastMemberChanged>> _memberChangedHandlers;
     private readonly IReadOnlyCollection<ICrowCastEventHandler<CrowCastMessageReceived>> _messageReceivedHandlers;
     private readonly IReadOnlyCollection<ICrowCastEventHandler<CrowCastCoordinatorChanged>> _coordinatorChangedHandlers;
+    private readonly CrowCastMessageRegistry _messageRegistry;
     private readonly ILogger<CrowCastService> _logger;
     private readonly TimeProvider _timeProvider;
     private readonly Dictionary<CrowCastNodeIdentity, CrowCastMember> _members = [];
@@ -40,6 +41,7 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
         IEnumerable<ICrowCastEventHandler<CrowCastMemberChanged>> memberChangedHandlers,
         IEnumerable<ICrowCastEventHandler<CrowCastMessageReceived>> messageReceivedHandlers,
         IEnumerable<ICrowCastEventHandler<CrowCastCoordinatorChanged>> coordinatorChangedHandlers,
+        CrowCastMessageRegistry messageRegistry,
         ILogger<CrowCastService> logger,
         TimeProvider timeProvider)
     {
@@ -48,6 +50,7 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
         _memberChangedHandlers = memberChangedHandlers.ToArray();
         _messageReceivedHandlers = messageReceivedHandlers.ToArray();
         _coordinatorChangedHandlers = coordinatorChangedHandlers.ToArray();
+        _messageRegistry = messageRegistry;
         _logger = logger;
         _timeProvider = timeProvider;
         LocalNode = CrowCastNodeIdentity.New();
@@ -167,10 +170,39 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
     public ValueTask PublishAsync(CrowCastMessage message, CancellationToken cancellationToken = default) =>
         PublishToAllAsync(message, cancellationToken);
 
+    public ValueTask PublishAsync<TMessage>(
+        TMessage message,
+        CancellationToken cancellationToken = default)
+        where TMessage : notnull =>
+        PublishToAllAsync(message, metadata: null, cancellationToken);
+
+    public ValueTask PublishAsync<TMessage>(
+        TMessage message,
+        IReadOnlyDictionary<string, string>? metadata,
+        CancellationToken cancellationToken = default)
+        where TMessage : notnull =>
+        PublishToAllAsync(message, metadata, cancellationToken);
+
     public ValueTask PublishToAllAsync(
         CrowCastMessage message,
         CancellationToken cancellationToken = default) =>
         PublishCoreAsync(message, CrowCastMessageTarget.AllMembers, cancellationToken);
+
+    public ValueTask PublishToAllAsync<TMessage>(
+        TMessage message,
+        CancellationToken cancellationToken = default)
+        where TMessage : notnull =>
+        PublishToAllAsync(message, metadata: null, cancellationToken);
+
+    public ValueTask PublishToAllAsync<TMessage>(
+        TMessage message,
+        IReadOnlyDictionary<string, string>? metadata,
+        CancellationToken cancellationToken = default)
+        where TMessage : notnull =>
+        PublishCoreAsync(
+            CreateTypedMessage(message, metadata),
+            CrowCastMessageTarget.AllMembers,
+            cancellationToken);
 
     public ValueTask PublishToMemberAsync(
         CrowCastMessage message,
@@ -182,6 +214,27 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
         return PublishCoreAsync(message, CrowCastMessageTarget.ForMember(member), cancellationToken);
     }
 
+    public ValueTask PublishToMemberAsync<TMessage>(
+        TMessage message,
+        CrowCastNodeIdentity member,
+        CancellationToken cancellationToken = default)
+        where TMessage : notnull =>
+        PublishToMemberAsync(message, member, metadata: null, cancellationToken);
+
+    public ValueTask PublishToMemberAsync<TMessage>(
+        TMessage message,
+        CrowCastNodeIdentity member,
+        IReadOnlyDictionary<string, string>? metadata,
+        CancellationToken cancellationToken = default)
+        where TMessage : notnull
+    {
+        ArgumentNullException.ThrowIfNull(member);
+        return PublishCoreAsync(
+            CreateTypedMessage(message, metadata),
+            CrowCastMessageTarget.ForMember(member),
+            cancellationToken);
+    }
+
     public ValueTask PublishToCoordinatorAsync(
         CrowCastMessage message,
         CancellationToken cancellationToken = default)
@@ -191,6 +244,36 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
         var coordinator = Coordinator ??
             throw new InvalidOperationException("CrowCast does not currently have an active coordinator.");
         return PublishCoreAsync(message, CrowCastMessageTarget.ForMember(coordinator), cancellationToken);
+    }
+
+    public ValueTask PublishToCoordinatorAsync<TMessage>(
+        TMessage message,
+        CancellationToken cancellationToken = default)
+        where TMessage : notnull =>
+        PublishToCoordinatorAsync(message, metadata: null, cancellationToken);
+
+    public ValueTask PublishToCoordinatorAsync<TMessage>(
+        TMessage message,
+        IReadOnlyDictionary<string, string>? metadata,
+        CancellationToken cancellationToken = default)
+        where TMessage : notnull
+    {
+        ThrowIfNotStarted();
+        var coordinator = Coordinator ??
+            throw new InvalidOperationException("CrowCast does not currently have an active coordinator.");
+        return PublishCoreAsync(
+            CreateTypedMessage(message, metadata),
+            CrowCastMessageTarget.ForMember(coordinator),
+            cancellationToken);
+    }
+
+    private CrowCastMessage CreateTypedMessage<TMessage>(
+        TMessage message,
+        IReadOnlyDictionary<string, string>? metadata)
+        where TMessage : notnull
+    {
+        ThrowIfNotStarted();
+        return _messageRegistry.CreateMessage(message, metadata);
     }
 
     private async ValueTask PublishCoreAsync(
@@ -390,9 +473,15 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
         }
 
         _telemetry.RecordReceived();
+        var received = new CrowCastMessageReceived(message, now);
         await DispatchAsync(
-            new CrowCastMessageReceived(message, now),
+            received,
             _messageReceivedHandlers,
+            cancellationToken).ConfigureAwait(false);
+        await _messageRegistry.DispatchAsync(
+            received,
+            this,
+            _logger,
             cancellationToken).ConfigureAwait(false);
     }
 

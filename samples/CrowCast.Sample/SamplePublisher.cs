@@ -1,6 +1,4 @@
-using System.Text;
 using CrowCast;
-using CrowCast.Messaging;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -17,9 +15,8 @@ internal sealed class SamplePublisher(ICrowCast crowCast, ILogger<SamplePublishe
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
         do
         {
-            var content = Encoding.UTF8.GetBytes($"hello at {DateTimeOffset.UtcNow:O}");
             await crowCast.PublishToAllAsync(
-                CrowCastMessage.Create("sample.heartbeat", content),
+                new SampleHeartbeat($"hello at {DateTimeOffset.UtcNow:O}"),
                 stoppingToken);
         }
         while (await timer.WaitForNextTickAsync(stoppingToken));

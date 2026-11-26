@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Collections.Concurrent;
 using CrowCast.Akka.DependencyInjection;
 using CrowCast.Backends;
 using CrowCast.DependencyInjection;
@@ -39,6 +40,12 @@ public sealed class AkkaCrowCastIntegrationTests
                       .Any(received => received.Message.Id == broadcast.Id) &&
                   replica.Events.Events.OfType<CrowCastMessageReceived>()
                       .Any(received => received.Message.Id == broadcast.Id),
+            TimeSpan.FromSeconds(10));
+
+        await replica.CrowCast.PublishToAllAsync(new IntegrationMessage("typed-broadcast"));
+        await WaitUntilAsync(
+            () => seed.TypedMessages.Messages.Any(message => message.Text == "typed-broadcast") &&
+                  replica.TypedMessages.Messages.Any(message => message.Text == "typed-broadcast"),
             TimeSpan.FromSeconds(10));
 
         var direct = CrowCastMessage.Create("integration.member", Encoding.UTF8.GetBytes("seed"));
@@ -113,23 +120,28 @@ public sealed class AkkaCrowCastIntegrationTests
             ServiceProvider provider,
             IHostedService hostedService,
             ICrowCast crowCast,
-            RecordingEventHandler events)
+            RecordingEventHandler events,
+            IntegrationMessageRecorder typedMessages)
         {
             _provider = provider;
             _hostedService = hostedService;
             CrowCast = crowCast;
             Events = events;
+            TypedMessages = typedMessages;
         }
 
         public ICrowCast CrowCast { get; }
 
         public RecordingEventHandler Events { get; }
 
+        public IntegrationMessageRecorder TypedMessages { get; }
+
         public static async Task<ClusterRuntime> StartAsync(int port, int seedPort)
         {
             var services = new ServiceCollection();
             var events = new RecordingEventHandler();
             services.AddLogging();
+            services.AddSingleton<IntegrationMessageRecorder>();
             services.AddSingleton<ICrowCastEventHandler<CrowCastMemberChanged>>(events);
             services.AddSingleton<ICrowCastEventHandler<CrowCastMessageReceived>>(events);
             services.AddSingleton<ICrowCastEventHandler<CrowCastCoordinatorChanged>>(events);
@@ -151,12 +163,19 @@ public sealed class AkkaCrowCastIntegrationTests
                 options.ShutdownTimeout = TimeSpan.FromSeconds(10);
             });
             builder.UseStaticNodeDiscovery(new CrowCastEndpoint("127.0.0.1", seedPort));
+            builder.AddMessageHandler<IntegrationMessage, IntegrationMessageHandler>(
+                "integration.message.v1");
 
             var provider = services.BuildServiceProvider();
             var hostedService = provider.GetServices<IHostedService>().Single();
             var crowCast = provider.GetRequiredService<ICrowCast>();
             await hostedService.StartAsync(CancellationToken.None);
-            return new ClusterRuntime(provider, hostedService, crowCast, events);
+            return new ClusterRuntime(
+                provider,
+                hostedService,
+                crowCast,
+                events,
+                provider.GetRequiredService<IntegrationMessageRecorder>());
         }
 
         public async ValueTask DisposeAsync()
@@ -168,6 +187,25 @@ public sealed class AkkaCrowCastIntegrationTests
 
             await _hostedService.StopAsync(CancellationToken.None);
             await _provider.DisposeAsync();
+        }
+    }
+
+    private sealed record IntegrationMessage(string Text);
+
+    private sealed class IntegrationMessageRecorder
+    {
+        public ConcurrentQueue<IntegrationMessage> Messages { get; } = new();
+    }
+
+    private sealed class IntegrationMessageHandler(IntegrationMessageRecorder recorder) :
+        ICrowCastMessageHandler<IntegrationMessage>
+    {
+        public ValueTask HandleAsync(
+            CrowCastMessageContext<IntegrationMessage> context,
+            CancellationToken cancellationToken)
+        {
+            recorder.Messages.Enqueue(context.Message);
+            return ValueTask.CompletedTask;
         }
     }
 }

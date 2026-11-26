@@ -1,4 +1,5 @@
 using CrowCast.Backends;
+using CrowCast.Configuration;
 using CrowCast.DependencyInjection;
 using CrowCast.Diagnostics;
 using CrowCast.Events;
@@ -36,9 +37,14 @@ internal sealed class CrowCastRuntimeHarness : IAsyncDisposable
 
     public ICrowCastDiagnostics Diagnostics { get; }
 
+    public T GetRequiredService<T>()
+        where T : notnull =>
+        _provider.GetRequiredService<T>();
+
     public static async Task<CrowCastRuntimeHarness> StartAsync(
         Action<CrowCast.Configuration.CrowCastOptions>? configure = null,
-        Action<IServiceCollection>? configureServices = null)
+        Action<IServiceCollection>? configureServices = null,
+        Action<CrowCastBuilder>? configureBuilder = null)
     {
         var services = new ServiceCollection();
         var backend = new FakeCrowCastBackend();
@@ -49,7 +55,8 @@ internal sealed class CrowCastRuntimeHarness : IAsyncDisposable
         services.AddSingleton<ICrowCastEventHandler<CrowCastMemberChanged>>(events);
         services.AddSingleton<ICrowCastEventHandler<CrowCastMessageReceived>>(events);
         services.AddSingleton<ICrowCastEventHandler<CrowCastCoordinatorChanged>>(events);
-        services.AddCrowCast(configure);
+        var builder = services.AddCrowCast(configure);
+        configureBuilder?.Invoke(builder);
         configureServices?.Invoke(services);
 
         var provider = services.BuildServiceProvider();

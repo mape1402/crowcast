@@ -1,6 +1,7 @@
 using CrowCast.Configuration;
 using CrowCast.Diagnostics;
 using CrowCast.Internal;
+using CrowCast.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -25,6 +26,8 @@ public static class CrowCastServiceCollectionExtensions
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IValidateOptions<CrowCastOptions>, CrowCastOptionsValidator>());
         services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<ICrowCastMessageSerializer, SystemTextJsonCrowCastMessageSerializer>();
+        services.TryAddSingleton<CrowCastMessageRegistry>();
         services.TryAddSingleton<CrowCastService>();
         services.TryAddSingleton<ICrowCast>(provider => provider.GetRequiredService<CrowCastService>());
         services.TryAddSingleton<ICrowCastDiagnostics>(provider => provider.GetRequiredService<CrowCastService>());
