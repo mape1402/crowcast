@@ -2,5 +2,10 @@ namespace CrowCast.Events;
 
 public interface ICrowCastEventHandler
 {
-    ValueTask HandleAsync(CrowCastEvent @event, CancellationToken cancellationToken);
+}
+
+public interface ICrowCastEventHandler<in TEvent> : ICrowCastEventHandler
+    where TEvent : CrowCastEvent
+{
+    ValueTask HandleAsync(TEvent @event, CancellationToken cancellationToken);
 }

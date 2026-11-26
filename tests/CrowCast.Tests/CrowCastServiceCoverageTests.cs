@@ -22,6 +22,9 @@ public sealed class CrowCastServiceCoverageTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await crowCast.PublishAsync(CrowCastMessage.Create("event", ReadOnlyMemory<byte>.Empty)));
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await crowCast.PublishToCoordinatorAsync(
+                CrowCastMessage.Create("coordinator", ReadOnlyMemory<byte>.Empty)));
         await hostedService.StopAsync(CancellationToken.None);
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             hostedService.StartAsync(CancellationToken.None));
@@ -97,7 +100,9 @@ public sealed class CrowCastServiceCoverageTests
     public async Task Handler_failures_are_isolated_but_requested_cancellation_propagates()
     {
         await using var runtime = await CrowCastRuntimeHarness.StartAsync(
-            configureServices: services => services.AddSingleton<ICrowCastEventHandler, ThrowingMessageHandler>());
+            configureServices: services => services.AddSingleton<
+                ICrowCastEventHandler<CrowCastMessageReceived>,
+                ThrowingMessageHandler>());
 
         await runtime.Backend.EmitAsync(new CrowCastBackendMessageReceived(
             CrowCastMessage.Create("not-cancelled", ReadOnlyMemory<byte>.Empty)));
@@ -232,16 +237,9 @@ public sealed class CrowCastServiceCoverageTests
 
     private sealed record UnknownNotification : CrowCastBackendNotification;
 
-    private sealed class ThrowingMessageHandler : ICrowCastEventHandler
+    private sealed class ThrowingMessageHandler : ICrowCastEventHandler<CrowCastMessageReceived>
     {
-        public ValueTask HandleAsync(CrowCastEvent @event, CancellationToken cancellationToken)
-        {
-            if (@event is CrowCastMessageReceived)
-            {
-                throw new OperationCanceledException(cancellationToken);
-            }
-
-            return ValueTask.CompletedTask;
-        }
+        public ValueTask HandleAsync(CrowCastMessageReceived @event, CancellationToken cancellationToken) =>
+            throw new OperationCanceledException(cancellationToken);
     }
 }

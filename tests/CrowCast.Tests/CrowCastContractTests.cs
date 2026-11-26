@@ -45,6 +45,19 @@ public sealed class CrowCastContractTests
     }
 
     [Fact]
+    public void Message_targets_represent_all_members_or_one_execution_identity()
+    {
+        var member = CrowCastNodeIdentity.New();
+
+        Assert.True(CrowCastMessageTarget.AllMembers.IsAllMembers);
+        Assert.Null(CrowCastMessageTarget.AllMembers.Member);
+        var targeted = CrowCastMessageTarget.ForMember(member);
+        Assert.False(targeted.IsAllMembers);
+        Assert.Equal(member, targeted.Member);
+        Assert.Throws<ArgumentNullException>(() => CrowCastMessageTarget.ForMember(null!));
+    }
+
+    [Fact]
     public void Node_identifiers_support_creation_parsing_comparison_and_validation()
     {
         var nodeId = CrowCastNodeId.New();
@@ -121,14 +134,18 @@ public sealed class CrowCastContractTests
     public void Builder_registers_each_event_handler_once_and_returns_itself()
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddSingleton<ICrowCastBackend>(new FakeCrowCastBackend());
         var builder = services.AddCrowCast();
 
+        Assert.Throws<InvalidOperationException>(() => builder.AddEventHandler<InvalidEventHandler>());
         Assert.Same(builder, builder.AddEventHandler<NoOpEventHandler>());
         Assert.Same(builder, builder.AddEventHandler<NoOpEventHandler>());
 
-        using var provider = services.BuildServiceProvider();
-        Assert.Single(provider.GetServices<ICrowCastEventHandler>().OfType<NoOpEventHandler>());
+        using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
+        var memberHandler = Assert.Single(provider.GetServices<ICrowCastEventHandler<CrowCastMemberChanged>>());
+        var messageHandler = Assert.Single(provider.GetServices<ICrowCastEventHandler<CrowCastMessageReceived>>());
+        Assert.Same(memberHandler, messageHandler);
     }
 
     [Fact]
@@ -142,9 +159,18 @@ public sealed class CrowCastContractTests
         Assert.True(limiter.TryAcquire(start.AddSeconds(2)));
     }
 
-    private sealed class NoOpEventHandler : ICrowCastEventHandler
+    private sealed class NoOpEventHandler :
+        ICrowCastEventHandler<CrowCastMemberChanged>,
+        ICrowCastEventHandler<CrowCastMessageReceived>
     {
-        public ValueTask HandleAsync(CrowCastEvent @event, CancellationToken cancellationToken) =>
+        public ValueTask HandleAsync(CrowCastMemberChanged @event, CancellationToken cancellationToken) =>
             ValueTask.CompletedTask;
+
+        public ValueTask HandleAsync(CrowCastMessageReceived @event, CancellationToken cancellationToken) =>
+            ValueTask.CompletedTask;
+    }
+
+    private sealed class InvalidEventHandler : ICrowCastEventHandler
+    {
     }
 }

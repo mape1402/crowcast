@@ -16,7 +16,9 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
 {
     private readonly ICrowCastBackend _backend;
     private readonly CrowCastOptions _options;
-    private readonly IReadOnlyCollection<ICrowCastEventHandler> _eventHandlers;
+    private readonly IReadOnlyCollection<ICrowCastEventHandler<CrowCastMemberChanged>> _memberChangedHandlers;
+    private readonly IReadOnlyCollection<ICrowCastEventHandler<CrowCastMessageReceived>> _messageReceivedHandlers;
+    private readonly IReadOnlyCollection<ICrowCastEventHandler<CrowCastCoordinatorChanged>> _coordinatorChangedHandlers;
     private readonly ILogger<CrowCastService> _logger;
     private readonly TimeProvider _timeProvider;
     private readonly Dictionary<CrowCastNodeIdentity, CrowCastMember> _members = [];
@@ -35,13 +37,17 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
     public CrowCastService(
         ICrowCastBackend backend,
         IOptions<CrowCastOptions> options,
-        IEnumerable<ICrowCastEventHandler> eventHandlers,
+        IEnumerable<ICrowCastEventHandler<CrowCastMemberChanged>> memberChangedHandlers,
+        IEnumerable<ICrowCastEventHandler<CrowCastMessageReceived>> messageReceivedHandlers,
+        IEnumerable<ICrowCastEventHandler<CrowCastCoordinatorChanged>> coordinatorChangedHandlers,
         ILogger<CrowCastService> logger,
         TimeProvider timeProvider)
     {
         _backend = backend;
         _options = options.Value;
-        _eventHandlers = eventHandlers.ToArray();
+        _memberChangedHandlers = memberChangedHandlers.ToArray();
+        _messageReceivedHandlers = messageReceivedHandlers.ToArray();
+        _coordinatorChangedHandlers = coordinatorChangedHandlers.ToArray();
         _logger = logger;
         _timeProvider = timeProvider;
         LocalNode = CrowCastNodeIdentity.New();
@@ -158,13 +164,43 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
         }
     }
 
-    public async ValueTask PublishAsync(CrowCastMessage message, CancellationToken cancellationToken = default)
+    public ValueTask PublishAsync(CrowCastMessage message, CancellationToken cancellationToken = default) =>
+        PublishToAllAsync(message, cancellationToken);
+
+    public ValueTask PublishToAllAsync(
+        CrowCastMessage message,
+        CancellationToken cancellationToken = default) =>
+        PublishCoreAsync(message, CrowCastMessageTarget.AllMembers, cancellationToken);
+
+    public ValueTask PublishToMemberAsync(
+        CrowCastMessage message,
+        CrowCastNodeIdentity member,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(message);
-        if (Volatile.Read(ref _started) == 0)
-        {
-            throw new InvalidOperationException("CrowCast has not been started.");
-        }
+        ArgumentNullException.ThrowIfNull(member);
+        return PublishCoreAsync(message, CrowCastMessageTarget.ForMember(member), cancellationToken);
+    }
+
+    public ValueTask PublishToCoordinatorAsync(
+        CrowCastMessage message,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ThrowIfNotStarted();
+        var coordinator = Coordinator ??
+            throw new InvalidOperationException("CrowCast does not currently have an active coordinator.");
+        return PublishCoreAsync(message, CrowCastMessageTarget.ForMember(coordinator), cancellationToken);
+    }
+
+    private async ValueTask PublishCoreAsync(
+        CrowCastMessage message,
+        CrowCastMessageTarget target,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(target);
+        ThrowIfNotStarted();
 
         var now = _timeProvider.GetUtcNow();
         if (!CrowCastInputValidator.TryValidateMessageShape(message, _options, out var reason) ||
@@ -181,7 +217,7 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
         }
 
         var outbound = message.Origin is null ? message.WithOrigin(LocalNode) : message;
-        await _backend.PublishAsync(outbound, cancellationToken).ConfigureAwait(false);
+        await _backend.PublishAsync(outbound, target, cancellationToken).ConfigureAwait(false);
         _telemetry.RecordPublished();
     }
 
@@ -310,6 +346,7 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
         _telemetry.RecordMembershipChange(current.Status);
         await DispatchAsync(
             new CrowCastMemberChanged(previous, current, _timeProvider.GetUtcNow()),
+            _memberChangedHandlers,
             cancellationToken).ConfigureAwait(false);
         await ReevaluateCoordinatorAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -353,7 +390,10 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
         }
 
         _telemetry.RecordReceived();
-        await DispatchAsync(new CrowCastMessageReceived(message, now), cancellationToken).ConfigureAwait(false);
+        await DispatchAsync(
+            new CrowCastMessageReceived(message, now),
+            _messageReceivedHandlers,
+            cancellationToken).ConfigureAwait(false);
     }
 
     private bool TryAcceptMessage(CrowCastMessageId messageId, DateTimeOffset now)
@@ -449,12 +489,17 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
         _telemetry.RecordCoordinatorChange();
         await DispatchAsync(
             new CrowCastCoordinatorChanged(previous, current, _timeProvider.GetUtcNow()),
+            _coordinatorChangedHandlers,
             cancellationToken).ConfigureAwait(false);
     }
 
-    private async ValueTask DispatchAsync(CrowCastEvent @event, CancellationToken cancellationToken)
+    private async ValueTask DispatchAsync<TEvent>(
+        TEvent @event,
+        IReadOnlyCollection<ICrowCastEventHandler<TEvent>> handlers,
+        CancellationToken cancellationToken)
+        where TEvent : CrowCastEvent
     {
-        foreach (var handler in _eventHandlers)
+        foreach (var handler in handlers)
         {
             try
             {
@@ -472,6 +517,14 @@ internal sealed class CrowCastService : ICrowCast, ICrowCastDiagnostics, IHosted
                     handler.GetType(),
                     @event.GetType());
             }
+        }
+    }
+
+    private void ThrowIfNotStarted()
+    {
+        if (Volatile.Read(ref _started) == 0)
+        {
+            throw new InvalidOperationException("CrowCast has not been started.");
         }
     }
 

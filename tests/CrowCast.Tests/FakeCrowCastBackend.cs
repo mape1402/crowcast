@@ -18,6 +18,8 @@ internal sealed class FakeCrowCastBackend : ICrowCastBackend
 
     public List<CrowCastMessage> PublishedMessages { get; } = [];
 
+    public List<CrowCastMessageTarget> PublishedTargets { get; } = [];
+
     public int StartCount { get; private set; }
 
     public int StopCount { get; private set; }
@@ -43,7 +45,10 @@ internal sealed class FakeCrowCastBackend : ICrowCastBackend
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask PublishAsync(CrowCastMessage message, CancellationToken cancellationToken)
+    public ValueTask PublishAsync(
+        CrowCastMessage message,
+        CrowCastMessageTarget target,
+        CancellationToken cancellationToken)
     {
         if (PublishException is not null)
         {
@@ -51,6 +56,7 @@ internal sealed class FakeCrowCastBackend : ICrowCastBackend
         }
 
         PublishedMessages.Add(message);
+        PublishedTargets.Add(target);
         return ValueTask.CompletedTask;
     }
 

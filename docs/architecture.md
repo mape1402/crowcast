@@ -39,7 +39,7 @@ The public contract stays independent of Akka, Kubernetes, databases, brokers, a
 
 `CrowCast.ControlPlane.Protocol` defines the versioned gRPC wire contract. `CrowCast.ControlPlane.Client` reports a replica's local view through one bidirectional HTTP/2 stream. `CrowCast.ControlPlane` ingests and aggregates those independent observer views, and `CrowCast.ControlPlane.WebUI` renders fleet, cluster, and observer-agreement views.
 
-A replacement backend implements `ICrowCastBackend`, receives an immutable `CrowCastBackendContext`, and emits backend notifications. Consumer applications remain attached to `ICrowCast` and `ICrowCastEventHandler`.
+A replacement backend implements `ICrowCastBackend`, receives an immutable `CrowCastBackendContext`, and emits backend notifications. Consumer applications remain attached to `ICrowCast` and typed `ICrowCastEventHandler<TEvent>` contracts.
 
 ## Membership flow
 
@@ -59,12 +59,13 @@ Akka's phi-accrual failure detector tolerates variable network latency. The spli
 
 1. The consumer creates a globally unique message ID, type, opaque bytes, and optional metadata.
 2. The core attaches the local identity as origin when none is supplied.
-3. The backend publishes the versioned envelope to the cluster topic.
-4. Each receiving core rejects expired messages and suppresses an ID already present in its bounded in-memory deduplication window.
-5. Malformed, oversized, future-dated, or rate-limited input is rejected before application dispatch.
-6. Accepted messages are delivered to every registered event handler.
+3. The consumer selects all members, one exact execution identity, or the current advisory coordinator as the destination. The core resolves coordinator delivery to the identity visible in its current local view.
+4. The Akka backend publishes the unchanged versioned envelope to either the shared cluster topic or a private topic derived from the destination `(NodeId, Generation)` pair.
+5. Each receiving core rejects expired messages and suppresses an ID already present in its bounded in-memory deduplication window.
+6. Malformed, oversized, future-dated, or rate-limited input is rejected before application dispatch.
+7. Accepted messages are delivered only to `ICrowCastEventHandler<CrowCastMessageReceived>` implementations.
 
-Distributed PubSub is eventually consistent and is not durable. Messages published while no subscriber is reachable can be lost. Delivery order can differ between nodes, and a message can reappear after deduplication state expires or a process restarts.
+Distributed PubSub is eventually consistent and is not durable. Messages published while no subscriber is reachable can be lost. Delivery order can differ between nodes, and a message can reappear after deduplication state expires or a process restarts. A member target identifies one execution generation, so a replacement pod does not inherit messages addressed to the previous process. A coordinator target is a snapshot of the publisher's local view, not a lease or routing guarantee across a partition.
 
 ## Coordination
 

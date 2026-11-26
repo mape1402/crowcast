@@ -57,9 +57,10 @@ public sealed class ObservationModelTests
     public async Task Event_sink_handles_anonymous_messages_and_cleared_coordinator_without_subscribers()
     {
         var sink = new CrowCastObservationEventSink(Options.Create(new CrowCastObservabilityOptions()));
+        var handler = new CrowCastObservationEventHandler(sink);
         var now = DateTimeOffset.UtcNow;
-        await sink.HandleAsync(new CrowCastMessageReceived(CrowCastMessage.Create("anonymous", ReadOnlyMemory<byte>.Empty), now), CancellationToken.None);
-        await sink.HandleAsync(new CrowCastCoordinatorChanged(CrowCastNodeIdentity.New(), null, now), CancellationToken.None);
+        await handler.HandleAsync(new CrowCastMessageReceived(CrowCastMessage.Create("anonymous", ReadOnlyMemory<byte>.Empty), now), CancellationToken.None);
+        await handler.HandleAsync(new CrowCastCoordinatorChanged(CrowCastNodeIdentity.New(), null, now), CancellationToken.None);
 
         Assert.Equal(["coordination", "message"], sink.GetEvents(0, 10).Select(item => item.Category));
         Assert.All(sink.GetEvents(0, 10), item => Assert.Null(item.Subject));

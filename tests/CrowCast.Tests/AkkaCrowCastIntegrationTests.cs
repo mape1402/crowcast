@@ -16,7 +16,7 @@ public sealed class AkkaCrowCastIntegrationTests
 {
     [Fact]
     [Trait("Category", "Integration")]
-    public async Task Two_replicas_discover_exchange_messages_and_leave()
+    public async Task Two_replicas_support_broadcast_member_and_coordinator_delivery_then_leave()
     {
         var seedPort = GetFreePort();
         var replicaPort = GetFreePort();
@@ -25,16 +25,48 @@ public sealed class AkkaCrowCastIntegrationTests
 
         await WaitUntilAsync(
             () => seed.CrowCast.Members.Count(member => member.Status == CrowCastMemberStatus.Alive) == 2 &&
-                  replica.CrowCast.Members.Count(member => member.Status == CrowCastMemberStatus.Alive) == 2,
+                  replica.CrowCast.Members.Count(member => member.Status == CrowCastMemberStatus.Alive) == 2 &&
+                  seed.CrowCast.Coordinator is not null &&
+                  seed.CrowCast.Coordinator == replica.CrowCast.Coordinator,
             TimeSpan.FromSeconds(20));
+        await Task.Delay(TimeSpan.FromSeconds(1));
 
-        var message = CrowCastMessage.Create("integration", Encoding.UTF8.GetBytes("hello"));
-        await replica.CrowCast.PublishAsync(message);
+        var broadcast = CrowCastMessage.Create("integration.broadcast", Encoding.UTF8.GetBytes("all"));
+        await replica.CrowCast.PublishToAllAsync(broadcast);
 
         await WaitUntilAsync(
             () => seed.Events.Events.OfType<CrowCastMessageReceived>()
-                .Any(received => received.Message.Id == message.Id),
+                      .Any(received => received.Message.Id == broadcast.Id) &&
+                  replica.Events.Events.OfType<CrowCastMessageReceived>()
+                      .Any(received => received.Message.Id == broadcast.Id),
             TimeSpan.FromSeconds(10));
+
+        var direct = CrowCastMessage.Create("integration.member", Encoding.UTF8.GetBytes("seed"));
+        await replica.CrowCast.PublishToMemberAsync(direct, seed.CrowCast.LocalNode);
+        await WaitUntilAsync(
+            () => seed.Events.Events.OfType<CrowCastMessageReceived>()
+                .Any(received => received.Message.Id == direct.Id),
+            TimeSpan.FromSeconds(10));
+        await Task.Delay(TimeSpan.FromSeconds(1));
+        Assert.DoesNotContain(
+            replica.Events.Events.OfType<CrowCastMessageReceived>(),
+            received => received.Message.Id == direct.Id);
+
+        var coordinatorMessage = CrowCastMessage.Create(
+            "integration.coordinator",
+            Encoding.UTF8.GetBytes("coordinator"));
+        var coordinator = Assert.IsType<CrowCastNodeIdentity>(replica.CrowCast.Coordinator);
+        var coordinatorRuntime = coordinator == seed.CrowCast.LocalNode ? seed : replica;
+        var otherRuntime = coordinator == seed.CrowCast.LocalNode ? replica : seed;
+        await replica.CrowCast.PublishToCoordinatorAsync(coordinatorMessage);
+        await WaitUntilAsync(
+            () => coordinatorRuntime.Events.Events.OfType<CrowCastMessageReceived>()
+                .Any(received => received.Message.Id == coordinatorMessage.Id),
+            TimeSpan.FromSeconds(10));
+        await Task.Delay(TimeSpan.FromSeconds(1));
+        Assert.DoesNotContain(
+            otherRuntime.Events.Events.OfType<CrowCastMessageReceived>(),
+            received => received.Message.Id == coordinatorMessage.Id);
 
         var replicaIdentity = replica.CrowCast.LocalNode;
         await replica.DisposeAsync();
@@ -98,7 +130,9 @@ public sealed class AkkaCrowCastIntegrationTests
             var services = new ServiceCollection();
             var events = new RecordingEventHandler();
             services.AddLogging();
-            services.AddSingleton<ICrowCastEventHandler>(events);
+            services.AddSingleton<ICrowCastEventHandler<CrowCastMemberChanged>>(events);
+            services.AddSingleton<ICrowCastEventHandler<CrowCastMessageReceived>>(events);
+            services.AddSingleton<ICrowCastEventHandler<CrowCastCoordinatorChanged>>(events);
 
             var builder = services.AddCrowCast(options =>
             {
