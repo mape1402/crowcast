@@ -1,5 +1,6 @@
 using CrowCast.WebUI.Realtime;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -12,7 +13,8 @@ public static class CrowCastWebUIEndpointRouteBuilderExtensions
     {
         ArgumentNullException.ThrowIfNull(endpoints);
         var options = endpoints.ServiceProvider.GetRequiredService<IOptions<CrowCastWebUIOptions>>().Value;
-        endpoints.MapHub<CrowCastWebUIHub>($"/{ServiceCollectionExtensions.Normalize(options.RoutePrefix)}/live");
+        var liveHub = endpoints.MapHub<CrowCastWebUIHub>($"/{ServiceCollectionExtensions.Normalize(options.RoutePrefix)}/live");
+        if (options.ExcludeFromOpenApi) liveHub.ExcludeFromDescription();
         return endpoints;
     }
 }

@@ -460,6 +460,7 @@ builder.Services.AddCrowCastObservability(options =>
 builder.Services.AddCrowCastWebUI(options =>
 {
     options.RoutePrefix = "crowcast";
+    options.ExcludeFromOpenApi = true;
 });
 
 var app = builder.Build();
@@ -470,6 +471,8 @@ app.MapCrowCastWebUI();
 ```
 
 Open `/crowcast` for overview, members, activity, telemetry, and topology. AG Grid renders operational tables, Apache ECharts renders trends and topology, and SignalR triggers live refreshes. This adds Razor Page and SignalR routes only; it does not add gossip operations to an OpenAPI document.
+
+`ExcludeFromOpenApi` defaults to `true` and explicitly applies `ExcludeFromDescription` to every CrowCast Razor Page and to the live SignalR endpoint. This prevents those dashboard routes from being imported and exposed by API gateways that consume the application's OpenAPI document. Set it to `false` only when an application intentionally wants its own endpoint conventions or document generator to consider those routes. Razor Pages and SignalR hubs are not REST operations, so standard ASP.NET Core OpenAPI generators still do not describe them automatically.
 
 Endpoints and arbitrary member metadata are excluded from observations by default. Enable `IncludeEndpoints` or add specific keys to `IncludedMetadataKeys` only when that data is appropriate for operators.
 
