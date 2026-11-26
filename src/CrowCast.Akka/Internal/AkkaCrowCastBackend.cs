@@ -95,14 +95,18 @@ internal sealed class AkkaCrowCastBackend : ICrowCastBackend
         }
     }
 
-    public ValueTask PublishAsync(CrowCastMessage message, CancellationToken cancellationToken)
+    public ValueTask PublishAsync(
+        CrowCastMessage message,
+        CrowCastMessageTarget target,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(target);
         cancellationToken.ThrowIfCancellationRequested();
 
         var actor = _clusterActor ??
             throw new InvalidOperationException("The Akka CrowCast backend has not been started.");
-        actor.Tell(new CrowCastClusterActor.PublishMessage(message));
+        actor.Tell(new CrowCastClusterActor.PublishMessage(message, target));
         return ValueTask.CompletedTask;
     }
 

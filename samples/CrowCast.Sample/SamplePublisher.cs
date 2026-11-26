@@ -18,7 +18,9 @@ internal sealed class SamplePublisher(ICrowCast crowCast, ILogger<SamplePublishe
         do
         {
             var content = Encoding.UTF8.GetBytes($"hello at {DateTimeOffset.UtcNow:O}");
-            await crowCast.PublishAsync(CrowCastMessage.Create("sample.heartbeat", content), stoppingToken);
+            await crowCast.PublishToAllAsync(
+                CrowCastMessage.Create("sample.heartbeat", content),
+                stoppingToken);
         }
         while (await timer.WaitForNextTickAsync(stoppingToken));
     }

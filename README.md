@@ -23,6 +23,7 @@ Use CrowCast for lightweight cluster signals such as:
 - cache or configuration invalidation;
 - topology and partition notifications;
 - small application-defined events;
+- best-effort delivery to all replicas, one execution identity, or the current coordinator;
 - advisory coordinator selection;
 - reacting when a replica joins, becomes suspect, leaves, or disappears.
 
@@ -63,54 +64,35 @@ Applications normally reference both packages while Akka is the selected backend
 
 ## Getting Started
 
-### 1. Create an event handler
+### 1. Create a typed event handler
 
-CrowCast delivers membership, message, and coordinator changes through `ICrowCastEventHandler`:
+CrowCast dispatches each event only to handlers registered for that exact event type:
 
 ```csharp
 using System.Text;
 using CrowCast.Events;
 using Microsoft.Extensions.Logging;
 
-public sealed class ApplicationCrowCastHandler(
-    ILogger<ApplicationCrowCastHandler> logger) : ICrowCastEventHandler
+public sealed class ApplicationMessageHandler(
+    ILogger<ApplicationMessageHandler> logger)
+    : ICrowCastEventHandler<CrowCastMessageReceived>
 {
     public ValueTask HandleAsync(
-        CrowCastEvent @event,
+        CrowCastMessageReceived @event,
         CancellationToken cancellationToken)
     {
-        switch (@event)
-        {
-            case CrowCastMemberChanged member:
-                logger.LogInformation(
-                    "CrowCast member {Identity}: {Previous} -> {Current}",
-                    member.Current.Identity,
-                    member.Previous?.Status.ToString() ?? "new",
-                    member.Current.Status);
-                break;
-
-            case CrowCastMessageReceived received:
-                logger.LogInformation(
-                    "CrowCast message {Type} from {Origin}: {Content}",
-                    received.Message.Type,
-                    received.Message.Origin,
-                    Encoding.UTF8.GetString(received.Message.Content.Span));
-                break;
-
-            case CrowCastCoordinatorChanged coordinator:
-                logger.LogInformation(
-                    "CrowCast coordinator changed from {Previous} to {Current}",
-                    coordinator.Previous,
-                    coordinator.Current);
-                break;
-        }
+        logger.LogInformation(
+            "CrowCast message {Type} from {Origin}: {Content}",
+            @event.Message.Type,
+            @event.Message.Origin,
+            Encoding.UTF8.GetString(@event.Message.Content.Span));
 
         return ValueTask.CompletedTask;
     }
 }
 ```
 
-Handlers decide what an event means to the application. CrowCast never executes business work on their behalf.
+Implement `ICrowCastEventHandler<CrowCastMemberChanged>` or `ICrowCastEventHandler<CrowCastCoordinatorChanged>` in separate handlers when the application needs those notifications. No catch-all handler or event-type `switch` is required. Handlers decide what an event means to the application; CrowCast never executes business work on their behalf.
 
 ### 2. Register a local cluster
 
@@ -144,7 +126,7 @@ crowCast.UseAkka(options =>
 crowCast.UseStaticNodeDiscovery(
     new CrowCastEndpoint("127.0.0.1", 4053));
 
-crowCast.AddEventHandler<ApplicationCrowCastHandler>();
+crowCast.AddEventHandler<ApplicationMessageHandler>();
 
 await builder.Build().RunAsync();
 ```
@@ -174,10 +156,28 @@ public sealed class PartitionPublisher(ICrowCast crowCast)
                 ["schema"] = "v1"
             });
 
-        return crowCast.PublishAsync(message, cancellationToken);
+        return crowCast.PublishToAllAsync(message, cancellationToken);
     }
 }
 ```
+
+Choose the destination explicitly for directed delivery:
+
+```csharp
+var member = crowCast.Members.First(item => item.Status == CrowCastMemberStatus.Alive);
+var content = JsonSerializer.SerializeToUtf8Bytes(payload);
+
+await crowCast.PublishToMemberAsync(
+    CrowCastMessage.Create("partition.recalculate.v1", content),
+    member.Identity,
+    cancellationToken);
+
+await crowCast.PublishToCoordinatorAsync(
+    CrowCastMessage.Create("partition.coordinate.v1", content),
+    cancellationToken);
+```
+
+`PublishToAllAsync` sends to all current subscribers, including the publishing replica. `PublishToMemberAsync` addresses one exact `(NodeId, Generation)` execution identity. `PublishToCoordinatorAsync` resolves the coordinator from the publisher's current membership view and throws `InvalidOperationException` when no active coordinator exists. `PublishAsync` remains a compatibility alias for `PublishToAllAsync`.
 
 When `Origin` is absent, CrowCast attaches the local runtime identity before publishing. The origin is contextual information only; it does not grant ownership or authority over the message or related work.
 
@@ -199,10 +199,10 @@ Both processes generate independent identities, converge on the same membership,
 3. The Akka backend joins an existing cluster or bootstraps itself when no contacts exist.
 4. Every replica periodically announces its CrowCast identity, endpoint, start time, and metadata.
 5. Akka membership and reachability observations become CrowCast membership changes.
-6. Messages are disseminated through Distributed PubSub and deduplicated locally by message ID.
+6. Broadcast messages use the shared Distributed PubSub topic; directed messages use the destination execution identity's private topic. Both paths are deduplicated locally by message ID.
 7. Every replica independently derives the same coordinator when it observes the same set of live members.
 
-The public API does not expose Akka types. Applications interact with `ICrowCast`, `ICrowCastEventHandler`, and the CrowCast models.
+The public API does not expose Akka types. Applications interact with `ICrowCast`, `ICrowCastEventHandler<TEvent>`, and the CrowCast models.
 
 ## Replica Identity
 
@@ -247,6 +247,8 @@ CrowCast is intended for compact notifications, not bulk payload transfer.
 - Types are application-owned strings. Version them when payload shape changes.
 - Content is opaque `ReadOnlyMemory<byte>`.
 - Metadata is a small string dictionary for schema, tracing, or routing context.
+- Broadcast delivery uses the shared cluster topic; member delivery addresses one exact runtime generation.
+- Coordinator delivery resolves the coordinator in the publisher's current local view and then uses member delivery.
 - Deduplication is local, in memory, bounded, and valid only for the configured window.
 - Messages older than `MessageTimeToLive` are rejected.
 - Messages too far in the future are rejected using `MaximumClockSkew`.
@@ -254,7 +256,7 @@ CrowCast is intended for compact notifications, not bulk payload transfer.
 
 The default application payload limit is 64 KiB. The default Akka frame limit is 256 KiB, allowing room for the message envelope and metadata. If application limits increase, `MaximumFrameSizeBytes` must remain large enough for the complete wire frame.
 
-CrowCast is not durable. A message published while no subscriber is reachable can be lost, and a process restart clears local deduplication state.
+CrowCast is not durable. A message published while no subscriber is reachable can be lost, and a process restart clears local deduplication state. Completion of a publish method means that the message was accepted by the configured backend; it is not a remote delivery acknowledgement. Use a new message ID for each logical publication, even when payloads are identical.
 
 ## Coordinator
 
@@ -361,7 +363,7 @@ crowCast.UseAkka(options =>
 });
 
 crowCast.UseDnsNodeDiscovery("orders-api-crowcast", 4053);
-crowCast.AddEventHandler<ApplicationCrowCastHandler>();
+crowCast.AddEventHandler<ApplicationMessageHandler>();
 ```
 
 The repository contains adaptable templates for the [`Headless Service`](deploy/kubernetes/headless-service.yaml) and a same-workload [`NetworkPolicy`](deploy/kubernetes/network-policy.yaml).
@@ -575,7 +577,7 @@ The core is independent from Akka, Kubernetes, brokers, databases, and applicati
 
 - Implement `ICrowCastBackend` to replace Akka.
 - Implement `ICrowCastNodeDiscovery` to integrate another discovery mechanism.
-- Register one or more `ICrowCastEventHandler` implementations for application reactions.
+- Register one or more `ICrowCastEventHandler<TEvent>` implementations for application reactions.
 - Use `AdditionalConfiguration` for advanced Akka behavior that does not belong in the core API.
 
 See the [architecture guide](docs/architecture.md) for protocol boundaries, delivery semantics, and extension points.

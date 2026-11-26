@@ -9,7 +9,7 @@ using Microsoft.Extensions.Options;
 
 namespace CrowCast.Observability.Internal;
 
-internal sealed class CrowCastObservationSource : BackgroundService, ICrowCastObservationSource, ICrowCastEventHandler
+internal sealed class CrowCastObservationSource : BackgroundService, ICrowCastObservationSource
 {
     private readonly ICrowCast _crowCast;
     private readonly ICrowCastDiagnostics _diagnostics;

@@ -46,7 +46,9 @@ internal sealed class CrowCastRuntimeHarness : IAsyncDisposable
 
         services.AddLogging();
         services.AddSingleton<ICrowCastBackend>(backend);
-        services.AddSingleton<ICrowCastEventHandler>(events);
+        services.AddSingleton<ICrowCastEventHandler<CrowCastMemberChanged>>(events);
+        services.AddSingleton<ICrowCastEventHandler<CrowCastMessageReceived>>(events);
+        services.AddSingleton<ICrowCastEventHandler<CrowCastCoordinatorChanged>>(events);
         services.AddCrowCast(configure);
         configureServices?.Invoke(services);
 

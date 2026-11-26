@@ -12,4 +12,15 @@ public interface ICrowCast
     CrowCastNodeIdentity? Coordinator { get; }
 
     ValueTask PublishAsync(CrowCastMessage message, CancellationToken cancellationToken = default);
+
+    ValueTask PublishToAllAsync(CrowCastMessage message, CancellationToken cancellationToken = default);
+
+    ValueTask PublishToMemberAsync(
+        CrowCastMessage message,
+        CrowCastNodeIdentity member,
+        CancellationToken cancellationToken = default);
+
+    ValueTask PublishToCoordinatorAsync(
+        CrowCastMessage message,
+        CancellationToken cancellationToken = default);
 }

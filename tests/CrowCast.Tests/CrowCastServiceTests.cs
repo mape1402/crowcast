@@ -62,7 +62,51 @@ public sealed class CrowCastServiceTests
 
         var published = Assert.Single(runtime.Backend.PublishedMessages);
         Assert.Equal(runtime.CrowCast.LocalNode, published.Origin);
+        Assert.Same(CrowCastMessageTarget.AllMembers, Assert.Single(runtime.Backend.PublishedTargets));
         Assert.Equal(1, runtime.Diagnostics.GetSnapshot().MessagesPublished);
+    }
+
+    [Fact]
+    public async Task Publish_supports_all_members_a_specific_member_and_the_coordinator()
+    {
+        await using var runtime = await CrowCastRuntimeHarness.StartAsync();
+        var member = CrowCastNodeIdentity.New();
+
+        await runtime.CrowCast.PublishToAllAsync(
+            CrowCastMessage.Create("all", ReadOnlyMemory<byte>.Empty));
+        await runtime.CrowCast.PublishToMemberAsync(
+            CrowCastMessage.Create("member", ReadOnlyMemory<byte>.Empty),
+            member);
+        await runtime.CrowCast.PublishToCoordinatorAsync(
+            CrowCastMessage.Create("coordinator", ReadOnlyMemory<byte>.Empty));
+
+        Assert.Collection(
+            runtime.Backend.PublishedTargets,
+            target => Assert.True(target.IsAllMembers),
+            target => Assert.Equal(member, target.Member),
+            target => Assert.Equal(runtime.CrowCast.LocalNode, target.Member));
+        Assert.Equal(3, runtime.Diagnostics.GetSnapshot().MessagesPublished);
+    }
+
+    [Fact]
+    public async Task Directed_publish_validates_arguments_and_requires_a_coordinator()
+    {
+        await using var runtime = await CrowCastRuntimeHarness.StartAsync(options =>
+            options.EnableCoordinatorElection = false);
+        var message = CrowCastMessage.Create("targeted", ReadOnlyMemory<byte>.Empty);
+
+        await Assert.ThrowsAsync<ArgumentNullException>(async () =>
+            await runtime.CrowCast.PublishToAllAsync(null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(async () =>
+            await runtime.CrowCast.PublishToMemberAsync(null!, runtime.CrowCast.LocalNode));
+        await Assert.ThrowsAsync<ArgumentNullException>(async () =>
+            await runtime.CrowCast.PublishToMemberAsync(message, null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(async () =>
+            await runtime.CrowCast.PublishToCoordinatorAsync(null!));
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await runtime.CrowCast.PublishToCoordinatorAsync(message));
+
+        Assert.Empty(runtime.Backend.PublishedMessages);
     }
 
     [Fact]

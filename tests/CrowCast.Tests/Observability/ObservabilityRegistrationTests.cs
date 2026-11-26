@@ -17,10 +17,13 @@ public sealed class ObservabilityRegistrationTests
         var services = new ServiceCollection();
         services.AddCrowCastObservability(options => options.ServiceName = "test");
         var source = services.Single(descriptor => descriptor.ServiceType == typeof(ICrowCastObservationSource));
-        var handler = services.Last(descriptor => descriptor.ServiceType == typeof(ICrowCastEventHandler));
+        var handlers = services.Where(descriptor =>
+            descriptor.ServiceType.IsGenericType &&
+            descriptor.ServiceType.GetGenericTypeDefinition() == typeof(ICrowCastEventHandler<>)).ToArray();
         var hosted = services.Last(descriptor => descriptor.ServiceType == typeof(IHostedService));
         Assert.NotNull(source.ImplementationFactory);
-        Assert.NotNull(handler.ImplementationType);
+        Assert.Equal(3, handlers.Length);
+        Assert.All(handlers, handler => Assert.NotNull(handler.ImplementationType));
         Assert.NotNull(hosted.ImplementationType);
     }
 

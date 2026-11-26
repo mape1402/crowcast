@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using Akka.Actor;
 using Akka.Cluster;
+using Akka.Cluster.Tools.PublishSubscribe;
 using Akka.Util;
 using CrowCast.Akka.Configuration;
 using CrowCast.Akka.Internal;
@@ -27,21 +28,39 @@ public sealed class AkkaBackendCoverageTests
         await Assert.ThrowsAsync<ArgumentNullException>(async () =>
             await backend.StartAsync(null!, CancellationToken.None));
         await Assert.ThrowsAsync<ArgumentNullException>(async () =>
-            await backend.PublishAsync(null!, CancellationToken.None));
+            await backend.PublishAsync(null!, CrowCastMessageTarget.AllMembers, CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentNullException>(async () =>
+            await backend.PublishAsync(
+                CrowCastMessage.Create("missing-target", ReadOnlyMemory<byte>.Empty),
+                null!,
+                CancellationToken.None));
         using (var cancellation = new CancellationTokenSource())
         {
             cancellation.Cancel();
             await Assert.ThrowsAsync<OperationCanceledException>(async () =>
-                await backend.PublishAsync(CrowCastMessage.Create("cancelled", ReadOnlyMemory<byte>.Empty), cancellation.Token));
+                await backend.PublishAsync(
+                    CrowCastMessage.Create("cancelled", ReadOnlyMemory<byte>.Empty),
+                    CrowCastMessageTarget.AllMembers,
+                    cancellation.Token));
         }
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await backend.PublishAsync(CrowCastMessage.Create("not-started", ReadOnlyMemory<byte>.Empty), CancellationToken.None));
+            await backend.PublishAsync(
+                CrowCastMessage.Create("not-started", ReadOnlyMemory<byte>.Empty),
+                CrowCastMessageTarget.AllMembers,
+                CancellationToken.None));
 
         await backend.StartAsync(context, CancellationToken.None);
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await backend.StartAsync(context, CancellationToken.None));
-        await backend.PublishAsync(CrowCastMessage.Create("started", ReadOnlyMemory<byte>.Empty), CancellationToken.None);
+        await backend.PublishAsync(
+            CrowCastMessage.Create("started", ReadOnlyMemory<byte>.Empty),
+            CrowCastMessageTarget.AllMembers,
+            CancellationToken.None);
+        await backend.PublishAsync(
+            CrowCastMessage.Create("targeted", ReadOnlyMemory<byte>.Empty),
+            CrowCastMessageTarget.ForMember(context.LocalNode),
+            CancellationToken.None);
 
         await backend.DisposeAsync();
         await backend.DisposeAsync();
@@ -112,6 +131,7 @@ public sealed class AkkaBackendCoverageTests
         await backend.StartAsync(CreateContext(notifications), CancellationToken.None);
         var actor = GetPrivateField<IActorRef>(backend, "_clusterActor");
         var now = DateTimeOffset.UtcNow;
+        actor.Tell(new SubscribeAck(new Subscribe("unknown-topic", actor)));
 
         actor.Tell(new CrowCastNodeAnnouncement(
             Guid.Empty,

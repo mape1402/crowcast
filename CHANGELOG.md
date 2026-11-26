@@ -4,6 +4,10 @@ All notable changes to CrowCast will be documented in this file.
 
 ## [Unreleased]
 
+## [v1.0.0] - 2026-11-25
+
+### Added
+
 - Added the application-neutral CrowCast core package.
 - Added random per-runtime node identities and generations.
 - Added membership, event, message, deduplication, coordinator, metric, and diagnostic APIs.
@@ -21,3 +25,5 @@ All notable changes to CrowCast will be documented in this file.
 - Added a versioned bidirectional gRPC protocol and non-blocking replica reporter.
 - Added an in-memory multi-cluster control plane with fleet health, observer agreement, and live updates.
 - Added a ZoOrce control-plane dashboard and configurable multi-cluster demonstration.
+- Added strongly typed event handlers and removed the need for consumer-side event switches.
+- Added explicit delivery to all members, one execution identity, or the current advisory coordinator.

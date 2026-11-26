@@ -3,6 +3,7 @@ using Akka.Cluster.Tools.PublishSubscribe;
 using CrowCast.Akka.Transport;
 using CrowCast.Backends;
 using CrowCast.Membership;
+using CrowCast.Messaging;
 using Microsoft.Extensions.Logging;
 
 namespace CrowCast.Akka.Internal;
@@ -16,6 +17,7 @@ internal sealed class CrowCastClusterActor : ReceiveActor
     private readonly TaskCompletionSource _subscriptionReady;
     private readonly ILogger _logger;
     private readonly string _topic;
+    private readonly string _memberTopic;
     private readonly DateTimeOffset _startedAtUtc;
     private readonly TimeProvider _timeProvider;
     private readonly Dictionary<string, CrowCastNodeIdentity> _identitiesByEndpoint = new(StringComparer.Ordinal);
@@ -23,6 +25,7 @@ internal sealed class CrowCastClusterActor : ReceiveActor
     private readonly Dictionary<string, CrowCastMemberStatus> _statusByEndpoint = new(StringComparer.Ordinal);
     private readonly Dictionary<CrowCastNodeIdentity, CrowCastMemberStatus> _statusByIdentity = [];
     private readonly Dictionary<CrowCastNodeIdentity, long> _terminalIdentityOrder = [];
+    private readonly HashSet<string> _pendingSubscriptions;
     private ICancelable _announcementSchedule = Cancelable.CreateCanceled();
     private long _rejectedWireInputCount;
     private long _terminalIdentitySequence;
@@ -42,13 +45,20 @@ internal sealed class CrowCastClusterActor : ReceiveActor
         _startedAtUtc = startedAtUtc;
         _timeProvider = timeProvider;
         _topic = $"crowcast-{backendContext.Settings.ClusterName}";
+        _memberTopic = GetMemberTopic(_topic, backendContext.LocalNode);
+        _pendingSubscriptions = [_topic, _memberTopic];
         _cluster = global::Akka.Cluster.Cluster.Get(Context.System);
         _mediator = DistributedPubSub.Get(Context.System).Mediator;
 
-        Receive<SubscribeAck>(_ => HandleSubscribeAck());
+        Receive<SubscribeAck>(HandleSubscribeAck);
         Receive<PublishAnnouncement>(_ => PublishLocalAnnouncement());
         Receive<PublishMessage>(message =>
-            _mediator.Tell(new Publish(_topic, CrowCastWireMapper.ToEnvelope(message.Message))));
+        {
+            var topic = message.Target.Member is null
+                ? _topic
+                : GetMemberTopic(_topic, message.Target.Member);
+            _mediator.Tell(new Publish(topic, CrowCastWireMapper.ToEnvelope(message.Message)));
+        });
         Receive<PrepareToLeave>(HandlePrepareToLeave);
 
         ReceiveAsync<global::Akka.Cluster.ClusterEvent.CurrentClusterState>(HandleCurrentStateAsync);
@@ -79,6 +89,7 @@ internal sealed class CrowCastClusterActor : ReceiveActor
             typeof(global::Akka.Cluster.ClusterEvent.IMemberEvent),
             typeof(global::Akka.Cluster.ClusterEvent.IReachabilityEvent));
         _mediator.Tell(new Subscribe(_topic, Self));
+        _mediator.Tell(new Subscribe(_memberTopic, Self));
         _announcementSchedule = Context.System.Scheduler.ScheduleTellRepeatedlyCancelable(
             TimeSpan.Zero,
             _backendContext.Settings.ExchangeInterval,
@@ -92,14 +103,27 @@ internal sealed class CrowCastClusterActor : ReceiveActor
     {
         _announcementSchedule.Cancel();
         _mediator.Tell(new Unsubscribe(_topic, Self));
+        _mediator.Tell(new Unsubscribe(_memberTopic, Self));
         _cluster.Unsubscribe(Self);
         base.PostStop();
     }
 
-    private void HandleSubscribeAck()
+    private void HandleSubscribeAck(SubscribeAck message)
     {
-        PublishLocalAnnouncement();
-        _subscriptionReady.TrySetResult();
+        if (!_pendingSubscriptions.Remove(message.Subscribe.Topic))
+        {
+            return;
+        }
+
+        if (message.Subscribe.Topic == _topic)
+        {
+            PublishLocalAnnouncement();
+        }
+
+        if (_pendingSubscriptions.Count == 0)
+        {
+            _subscriptionReady.TrySetResult();
+        }
     }
 
     private void PublishLocalAnnouncement()
@@ -374,7 +398,10 @@ internal sealed class CrowCastClusterActor : ReceiveActor
         }
     }
 
-    internal sealed record PublishMessage(CrowCast.Messaging.CrowCastMessage Message);
+    private static string GetMemberTopic(string clusterTopic, CrowCastNodeIdentity member) =>
+        $"{clusterTopic}-member-{member.NodeId.Value:N}-{member.Generation.Value:N}";
+
+    internal sealed record PublishMessage(CrowCastMessage Message, CrowCastMessageTarget Target);
 
     internal sealed record PrepareToLeave(TaskCompletionSource Completion);
 

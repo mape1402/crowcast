@@ -25,7 +25,15 @@ public static class CrowCastObservabilityServiceCollectionExtensions
         services.TryAddSingleton<CrowCastObservationEventSink>();
         services.TryAddSingleton<CrowCastObservationSource>();
         services.TryAddSingleton<ICrowCastObservationSource>(provider => provider.GetRequiredService<CrowCastObservationSource>());
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<ICrowCastEventHandler, CrowCastObservationEventHandler>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<
+            ICrowCastEventHandler<CrowCastMemberChanged>,
+            CrowCastObservationEventHandler>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<
+            ICrowCastEventHandler<CrowCastMessageReceived>,
+            CrowCastObservationEventHandler>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<
+            ICrowCastEventHandler<CrowCastCoordinatorChanged>,
+            CrowCastObservationEventHandler>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, CrowCastObservationHostedService>());
         return services;
     }

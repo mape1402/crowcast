@@ -127,6 +127,9 @@ public sealed class ObservationSourceTests
         public IReadOnlyCollection<CrowCastMember> Members => members;
         public CrowCastNodeIdentity? Coordinator => coordinator;
         public ValueTask PublishAsync(CrowCastMessage message, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask PublishToAllAsync(CrowCastMessage message, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask PublishToMemberAsync(CrowCastMessage message, CrowCastNodeIdentity member, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+        public ValueTask PublishToCoordinatorAsync(CrowCastMessage message, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
     }
 
     private sealed class StubDiagnostics(CrowCastDiagnosticsSnapshot snapshot) : ICrowCastDiagnostics
